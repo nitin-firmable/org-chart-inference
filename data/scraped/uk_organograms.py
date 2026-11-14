@@ -24,6 +24,17 @@ import pandas as pd
 API = "https://ckan.publishing.service.gov.uk/api/action/package_show?id="
 OUT = Path("data/scraped/output/uk")
 MIN_POSTS = 20                  # smaller files are too thin to say anything
+MINISTERIAL, NON_MINISTERIAL = "Ministerial department", "Non-ministerial department"
+ORG_TYPE = {                    # GOV.UK's classification of each organisation
+    "Cabinet Office": MINISTERIAL, "HM Treasury": MINISTERIAL, "Home Office": MINISTERIAL,
+    "Department for Education": MINISTERIAL, "Ministry of Justice": MINISTERIAL,
+    "Department for Digital, Culture, Media and Sport": MINISTERIAL,
+    "Department for Environment, Food and Rural Affairs": MINISTERIAL,
+    "HM Revenue and Customs": NON_MINISTERIAL, "HM Land Registry": NON_MINISTERIAL,
+    "Government Legal Department": NON_MINISTERIAL, "Crown Prosecution Service": NON_MINISTERIAL,
+    "Environment Agency": "Executive non-departmental public body",
+    "High Speed 2 Limited": "Executive non-departmental public body",
+}
 DATASETS = [
     "organogram-cabinet-office", "organogram-hm-treasury", "organogram-home-office",
     "organogram-department-for-education", "organogram-ministry-of-justice",
@@ -80,7 +91,8 @@ def convert(cid, company_name, rows):
         empty = name.upper() in EMPTY_POST or (title or "").upper() == "NOT IN POST"
         boss = post_id.get((r.get("Reports to Senior Post") or "").strip())
         people.append(dict(
-            company_id=cid, company_name=company_name, industry="Public sector",
+            company_id=cid, company_name=company_name,
+            industry=ORG_TYPE.get(company_name, "Public sector"),
             size=len(rows), employee_id=pid, full_name=None if empty else clean(name),
             title=None if empty else title, department=clean(r.get("Unit")),
             location=clean(r.get("Office Region")), grade=clean(r.get("Grade (or equivalent)")),
