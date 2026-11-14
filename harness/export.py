@@ -81,6 +81,8 @@ def main():
     DB.unlink(missing_ok=True)
     con = duckdb.connect(str(DB))
     all_people = pd.concat(people, ignore_index=True)
+    no_name = all_people.full_name.isna()        # e.g. a source name of "NA", read as missing
+    all_people.loc[no_name, "full_name"] = "Undisclosed (" + all_people.employee_id[no_name] + ")"
     all_people["is_top"] = all_people.is_top.fillna(False).astype(bool)
     for col in ["confidence", "level"]:
         all_people[col] = pd.to_numeric(all_people[col])

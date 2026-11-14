@@ -34,6 +34,9 @@ ABOUT = {
            "company page). No answer key: only 2 managers are publicly stated.",
 }
 HAS_TRUTH = {"synthetic": True, "uk": True, "asx": False}
+# Judges shown in the app. Rules and Laya can't read real-world titles (blank or nonsense
+# charts), so on real data only Claude is shown; all judges stay in the DuckDB file and harness.
+APP_JUDGES = {"synthetic": ["rules"], "uk": ["claude"], "asx": ["claude"]}
 JUDGES = {"claude": "Claude", "rules": "Rules", "laya_staged": "Laya (staged)", "laya": "Laya"}
 DEFAULT_THRESHOLD = 0.8                # wrong line = 4x a missing line
 
@@ -49,7 +52,8 @@ def db():
 def judges_for(data):
     row = db().cursor().execute("SELECT judges FROM datasets WHERE dataset = ?",
                                 [data]).fetchone()
-    return row[0].split(",") if row else []
+    have = row[0].split(",") if row else []
+    return [j for j in APP_JUDGES.get(data, have) if j in have] or have
 
 
 @st.cache_data
@@ -476,6 +480,19 @@ if len(sources):
 view = co if domain == "All" else co[(co.domain == domain) | co.is_top.astype(bool)]
 st.subheader(f"{info.company_name} — {domain}")
 # Our own HTML: names and titles are escaped inside org_chart.py before display
+if not view.is_top.astype(bool).any() and not view.given.any():
+    # Nothing to draw: say why instead of showing an empty chart
+    others = [j for j in judges if j != judge]
+    with st.container(border=True):
+        st.markdown(f"**Nothing could be placed in this view.** The {JUDGES[judge]} judge found "
+                    "no head of the organisation and drew no reporting lines"
+                    + (" for this domain. Try **All** domains." if domain != "All" else
+                       f" at confidence ≥ {threshold:.2f}. It may not be able to read these "
+                       "titles, or it isn't confident enough: try a lower threshold"
+                       + (" or another judge." if others else ".")))
+        if "claude" in others:
+            st.button("Switch to Claude", type="primary",
+                      on_click=lambda: ss.update(judge_select="claude"))
 st.iframe(org_chart.render_html(view, show_truth), height=720)
 
 # ---------------------------------------------------------------- lookups and gaps

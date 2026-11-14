@@ -19,8 +19,9 @@ def build_payload(view, show_truth):
     for r in view.itertuples():
         mgr = r.manager_id if isinstance(r.manager_id, str) and r.manager_id in ids else None
         title = r.title.strip() if isinstance(r.title, str) and r.title.strip() else "(no title)"
+        name = r.full_name if isinstance(r.full_name, str) and r.full_name else "(no name)"
         nodes[r.employee_id] = {
-            "n": r.full_name, "t": title,
+            "n": name, "t": title,
             "l": None if pd.isna(r.level) else int(r.level),
             "d": r.domain if isinstance(r.domain, str) else "",
             "top": bool(r.is_top) and not mgr,

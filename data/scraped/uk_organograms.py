@@ -34,7 +34,7 @@ DATASETS = [
     "organogram-department-for-environment-food-and-rural-affairs",
     "organogram-ministry-of-defence", "organogram-hm-passport-office",
 ]
-HIDDEN = {"", "N/D", "N/A", "REDACTED", "NOT DISCLOSED", "-"}
+HIDDEN = {"", "N/D", "N/A", "NA", "REDACTED", "NOT DISCLOSED", "-"}
 EMPTY_POST = {"VACANT", "VACANCY", "ELIMINATED", "VACANT POST"}
 
 
