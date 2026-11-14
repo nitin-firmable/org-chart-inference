@@ -24,10 +24,10 @@ from judge import live  # noqa: E402
 
 DB = ROOT / "app/org_chart.duckdb"
 FLOW = ROOT / "app/flow.svg"
-DATASETS = {"synthetic": "Synthetic (500 companies)", "uk": "UK government (real)",
-            "asx": "ASX/NZX leadership (real)"}
+DATASETS = {"synthetic": "Benchmark · 500 companies", "uk": "UK government",
+            "asx": "ASX/NZX leadership"}
 ABOUT = {
-    "synthetic": "Generated companies with a hidden answer key (seed 42).",
+    "synthetic": "Generated benchmark companies (not real firms) with a hidden answer key.",
     "uk": "Senior civil servants from data.gov.uk organograms (Open Government Licence). "
           "Each post's real 'reports to' line is the answer key.",
     "asx": "Executive teams copied from each company's own leadership page (source on each "

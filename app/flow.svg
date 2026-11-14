@@ -34,13 +34,13 @@
   <text x="56" y="156" class="t">seed 42 app · seed 7 held out · seed 1 training</text>
 
   <rect x="430" y="78" width="340" height="88" rx="10" class="box data"/>
-  <text x="446" y="101" class="h">UK government organograms (real)</text>
+  <text x="446" y="101" class="h">UK government organograms</text>
   <text x="446" y="120" class="m">data/scraped/uk_organograms.py</text>
   <text x="446" y="139" class="t">data.gov.uk · 13 organisations, 3,184 people</text>
   <text x="446" y="156" class="t">real "reports to" line = answer key</text>
 
   <rect x="820" y="78" width="340" height="88" rx="10" class="box data"/>
-  <text x="836" y="101" class="h">ASX/NZX leadership teams (real)</text>
+  <text x="836" y="101" class="h">ASX/NZX leadership teams</text>
   <text x="836" y="120" class="m">data/scraped/asx_leadership.py</text>
   <text x="836" y="139" class="t">company websites · 11 companies, 125 people</text>
   <text x="836" y="156" class="t">source URL per person · no answer key</text>
