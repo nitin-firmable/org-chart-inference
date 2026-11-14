@@ -15,6 +15,13 @@ import pandas as pd
 
 SHEET = Path(__file__).parent / "asx_leadership.csv"
 OUT = Path("data/scraped/output/asx")
+INDUSTRY = {                            # sector of each company (GICS-style, kept short)
+    "Commonwealth Bank of Australia": "Banking", "Fisher & Paykel Healthcare": "Medical devices",
+    "Fletcher Building": "Building materials", "Origin Energy": "Energy",
+    "Qantas": "Airlines", "SEEK": "Online marketplaces", "Telstra": "Telecommunications",
+    "Wesfarmers": "Conglomerate (retail)", "WiseTech Global": "Software (logistics)",
+    "Woolworths Group": "Retail (supermarkets)", "Xero": "Software (accounting)",
+}
 
 
 def main(out=OUT):
@@ -30,7 +37,8 @@ def main(out=OUT):
             if boss and boss not in ids:
                 print(f"warning: {name}: '{boss}' (manager of {p.full_name}) is not in the sheet")
             rows.append(dict(
-                company_id=cid, company_name=name, industry="ASX/NZX listed", size=len(co),
+                company_id=cid, company_name=name, industry=INDUSTRY.get(name, "Listed company"),
+                size=len(co),
                 employee_id=ids[p.full_name.strip()], full_name=p.full_name.strip(),
                 title=p.title.strip(), department=None, location=None,
                 true_manager_id=ids.get(boss), true_level=2 if boss else 1,
