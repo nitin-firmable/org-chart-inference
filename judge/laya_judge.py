@@ -93,15 +93,15 @@ def main(data_dir, companies=None):
     print(f"{len(done)} answers in {out / 'raw.csv'}")
 
 
-def to_predictions(employees, raw, confidence):
+def to_predictions(employees, raw, confidence, name="Laya"):
     """Raw answers + a (calibrated) confidence per answer -> predictions.csv columns."""
     pred = employees.merge(raw, on="employee_id", how="left")
     is_person = pred.choice.notna() & ~pred.choice.isin([TOP, NOT_LISTED])
     pred["pred_manager_id"] = pred.choice.where(is_person)
     pred["confidence"] = pd.Series(confidence, index=pred.index).where(is_person, 0.0).round(3)
     pred["rule_confidence"] = pred.raw_confidence.where(is_person, 0.0)
-    pred["reason"] = pred.choice.map({TOP: "Laya: heads the organisation",
-                                      NOT_LISTED: "Laya: manager not in the data"})
+    pred["reason"] = pred.choice.map({TOP: f"{name}: heads the organisation",
+                                      NOT_LISTED: f"{name}: manager not in the data"})
     return pred
 
 

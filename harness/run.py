@@ -23,6 +23,7 @@ from judge import claude_judge, laya_judge, laya_staged
 
 DATASETS = {"seed42": "data/synthetic/output/seed42", "seed7": "data/synthetic/output/seed7",
             "uk": "data/scraped/output/uk", "asx": "data/scraped/output/asx"}
+LABELS = {"laya": "Laya", "laya_staged": "Laya (staged)", "claude": "Claude"}
 THRESHOLD = 0.8                 # wrong line = 4x a missing line, as in judge/rules.py
 CALIBRATION_DATA = "uk"         # the only real answer key: every calibration map is fitted here
 
@@ -63,10 +64,10 @@ def model_judge(name, module):
                 sys.exit(f"No {name} calibration yet: run the harness on --data uk first.")
             conf = calibrate.apply(mapping, pred.raw_confidence)
         pred = laya_judge.to_predictions(employees[employees.employee_id.isin(pred.employee_id)],
-                                         raw, conf)
+                                         raw, conf, LABELS[name])
         pred["manager_id"] = pred.pred_manager_id.where(pred.confidence >= THRESHOLD)
         pred.loc[pred.pred_manager_id.notna() & pred.manager_id.isna(), "reason"] = \
-            f"{name}: confidence below threshold"
+            f"{LABELS[name]}: confidence below threshold"
         pred.to_csv(out / "predictions.csv", index=False)
         return pred
     return run

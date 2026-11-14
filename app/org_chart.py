@@ -1,7 +1,7 @@
 """
 org_chart.py  -  interactive, expandable org chart for one company (plain HTML/CSS/JS).
 
-Starts with the top of the company only. Each card has a pill with the number of people
+Starts with whoever the judge says heads the organisation. Each card has a pill with the number of people
 under that person; clicking it shows their direct reports below, joined by a line.
 People without a manager are listed in a separate "Not placed" section, so nobody is lost.
 Rendered with st.iframe (the replacement for the deprecated st.components.v1.html),
@@ -22,6 +22,8 @@ def build_payload(view, show_truth):
         nodes[r.employee_id] = {
             "n": r.full_name, "t": title,
             "l": None if pd.isna(r.level) else int(r.level),
+            "d": r.domain if isinstance(r.domain, str) else "",
+            "top": bool(r.is_top) and not mgr,
             "m": mgr,
             "c": round(float(r.confidence), 2) if mgr else None,
             "ok": bool(r.manager_id == r.true_manager_id) if (show_truth and mgr) else None,
@@ -56,8 +58,8 @@ def build_payload(view, show_truth):
     for pid in order:
         nodes[pid]["tot"] = sum(1 + nodes[k]["tot"] for k in nodes[pid]["k"])
 
-    roots = sorted([p for p, n in nodes.items() if not n["m"] and n["l"] == 1], key=sort_key)
-    unplaced = sorted([p for p, n in nodes.items() if not n["m"] and n["l"] != 1],
+    roots = sorted([p for p, n in nodes.items() if n["top"]], key=sort_key)
+    unplaced = sorted([p for p, n in nodes.items() if not n["m"] and not n["top"]],
                       key=lambda p: (-nodes[p]["tot"], sort_key(p)))
     return {"nodes": nodes, "roots": roots, "unplaced": unplaced, "truth": bool(show_truth)}
 
@@ -149,12 +151,14 @@ function card(id, sec, rowIdx) {
   el.dataset.id = id;
   let meta;
   if (n.m) meta = "line confidence " + n.c.toFixed(2);
-  else if (n.l === 1) meta = "top of company";
+  else if (n.top) meta = "heads the organisation";
   else meta = n.why ? "not placed: " + esc(n.why) : "not placed";
+  const about = [n.l !== null ? "level " + n.l : "", n.d ? esc(n.d) : ""].filter(Boolean).join(" · ");
   el.innerHTML =
     '<div class="avatar" style="background:' + colour(n.n) + '">' + esc(initials(n.n)) + '</div>' +
     '<div class="body"><div class="name" title="' + esc(n.n) + '">' + esc(n.n) + '</div>' +
     '<div class="title" title="' + esc(n.t) + '">' + esc(n.t) + '</div>' +
+    (about ? '<div class="meta" title="' + about + '">' + about + '</div>' : '') +
     '<div class="meta">' + meta + '</div></div>';
   if (n.k.length) {
     const b = document.createElement("button");
@@ -174,7 +178,7 @@ function render(sec) {
   const first = sec === "main" ? D.roots : D.unplaced;
   if (!first.length) {
     root.innerHTML = '<div class="empty">' +
-      (sec === "main" ? "No CEO found in this view." : "Everyone has a manager.") + "</div>";
+      (sec === "main" ? "Nobody was judged to head the organisation in this view." : "Everyone has a manager.") + "</div>";
     return;
   }
   const row0 = document.createElement("div");

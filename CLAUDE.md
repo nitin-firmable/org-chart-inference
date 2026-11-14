@@ -43,7 +43,11 @@ git-ignored; everything is reproducible (app data seed 42, held-out seed 7, trai
 - Real data: `python -m data.scraped.uk_organograms` / `python -m data.scraped.asx_leadership`,
   then `python -m judge.rules data/scraped/output/uk` and the harness
 - Retrain confidence: `python -m judge.train_confidence` (`python -m judge.rules --rules` = no tree)
-- App: `streamlit run app/app.py` (Streamlit Cloud: main file path `app/app.py`)
+- Compare judges: `python -m harness.run --judge rules claude laya laya_staged --data uk asx`,
+  then `python -m harness.export` -> `app/results/<dataset>/<judge>.csv` (tracked: the hosted
+  app reads real-data results from there; it can't run the model judges)
+- App: `streamlit run app/app.py` (Streamlit Cloud: main file path `app/app.py`); dataset and
+  judge pickers, URL `?data=uk&judge=claude&company=UK02`
 
 ## Current baseline (threshold 0.75), see docs/experiments.md
 Decision tree confidence, threshold 0.8 (wrong edge = 4x a missing edge):
