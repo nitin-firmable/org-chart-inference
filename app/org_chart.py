@@ -100,6 +100,9 @@ TEMPLATE = r"""
   .card.bad { background:var(--bad-bg); border-color:var(--bad-edge); }
   .card.open { outline:2px solid var(--accent); outline-offset:1px; }
   .card.new { box-shadow:0 0 0 2px var(--accent); }
+  .card { transition:filter .2s, opacity .2s; }
+  .card.dim { filter:blur(1.6px); opacity:.4; }      /* not on the open path: out of focus */
+  .card.dim:hover { filter:none; opacity:1; }
   .card.gone .avatar, .card.gone .name, .card.gone .title { filter:blur(2.2px); opacity:.55; }
   .badge { display:inline-block; font-size:10.5px; font-weight:600; border-radius:6px;
            padding:1px 6px; margin:2px 0 1px; }
@@ -166,8 +169,9 @@ function esc(s) {
 function card(id, sec, rowIdx) {
   const n = N[id], el = document.createElement("div");
   const open = state[sec][rowIdx] === id;
+  const dim = state[sec][rowIdx] !== undefined && !open;   // someone else in this row is open
   el.className = "card" + (n.ok === true ? " ok" : n.ok === false ? " bad" : "") + (open ? " open" : "") +
-                 (n.new ? " new" : "") + (n.gone ? " gone" : "");
+                 (n.new ? " new" : "") + (n.gone ? " gone" : "") + (dim ? " dim" : "");
   el.dataset.id = id;
   let meta;
   const badge = n.gone ? '<div class="badge gone">Left → ' + esc(n.gone) + '</div>'
