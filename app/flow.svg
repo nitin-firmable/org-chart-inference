@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 880" width="1200" height="880" font-family="Source Sans Pro, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .sec { font-size: 15px; font-weight: 700; fill: #1f2937; }
+      .h { font-size: 14px; font-weight: 700; fill: #1f2937; }
+      .t { font-size: 12.5px; fill: #374151; }
+      .st { font-size: 12px; fill: #374151; }
+      .m { font-size: 11.5px; fill: #6b7280; font-family: Menlo, Consolas, monospace; }
+      .box { stroke-width: 1.2; }
+      .data { fill: #eef4fd; stroke: #9bbcf0; }
+      .judge { fill: #f4f0fd; stroke: #c3b1ef; }
+      .harness { fill: #eef8f1; stroke: #9fd3b0; }
+      .app { fill: #fff6ec; stroke: #f0c28f; }
+      .line { stroke: #6b7280; stroke-width: 1.6; fill: none; }
+      .step { fill: #ffffff; stroke: #c3b1ef; stroke-width: 1.2; }
+      .num { font-size: 12px; font-weight: 700; fill: #ffffff; }
+      .dot { fill: #2E6FD8; }
+      @media (prefers-reduced-motion: reduce) { .dot { display: none; } }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="880" fill="#ffffff"/>
+  <text x="40" y="30" font-size="20" font-weight="700" fill="#1f2937">How Org Chart Inference works</text>
+
+  <!-- ============ 1 · Data ============ -->
+  <text x="40" y="66" class="sec">1 · Data</text>
+  <rect x="40" y="78" width="340" height="88" rx="10" class="box data"/>
+  <text x="56" y="101" class="h">Synthetic generator</text>
+  <text x="56" y="120" class="m">data/synthetic/generate.py</text>
+  <text x="56" y="139" class="t">500 companies, messy titles, hidden answer key</text>
+  <text x="56" y="156" class="t">seed 42 app · seed 7 held out · seed 1 training</text>
+
+  <rect x="430" y="78" width="340" height="88" rx="10" class="box data"/>
+  <text x="446" y="101" class="h">UK government organograms (real)</text>
+  <text x="446" y="120" class="m">data/scraped/uk_organograms.py</text>
+  <text x="446" y="139" class="t">data.gov.uk · 13 organisations, 3,184 people</text>
+  <text x="446" y="156" class="t">real "reports to" line = answer key</text>
+
+  <rect x="820" y="78" width="340" height="88" rx="10" class="box data"/>
+  <text x="836" y="101" class="h">ASX/NZX leadership teams (real)</text>
+  <text x="836" y="120" class="m">data/scraped/asx_leadership.py</text>
+  <text x="836" y="139" class="t">company websites · 11 companies, 125 people</text>
+  <text x="836" y="156" class="t">source URL per person · no answer key</text>
+
+  <path id="a1" d="M210 166 V198" class="line" marker-end="url(#arrow)"/>
+  <path id="a2" d="M600 166 V198" class="line" marker-end="url(#arrow)"/>
+  <path id="a3" d="M990 166 V198" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="198" width="1120" height="56" rx="10" class="box data"/>
+  <text x="56" y="221" class="h">Every dataset folder holds the same files</text>
+  <text x="56" y="242" class="t"><tspan class="m">employees.csv</tspan> what a judge may see (name, title, unit)     <tspan class="m">truth.csv</tspan> answer key, never shown to a judge     <tspan class="m">predictions.csv</tspan> written by a judge</text>
+
+  <!-- ============ 2 · Judges ============ -->
+  <text x="40" y="292" class="sec">2 · Judges</text>
+  <path id="b1" d="M220 254 V310" class="line" marker-end="url(#arrow)"/>
+  <path id="b2" d="M460 254 V310" class="line" marker-end="url(#arrow)"/>
+  <path id="b3" d="M750 254 V310" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="310" width="260" height="150" rx="10" class="box judge"/>
+  <text x="56" y="333" class="h">Rules</text>
+  <text x="56" y="352" class="m">judge/rules.py</text>
+  <text x="56" y="373" class="t">reads level + function from title</text>
+  <text x="56" y="391" class="t">keywords, then climbs to the next</text>
+  <text x="56" y="409" class="t">senior person in the same function</text>
+  <text x="56" y="429" class="t">confidence: small decision tree</text>
+  <text x="56" y="447" class="m">models/confidence_tree.json</text>
+
+  <rect x="330" y="310" width="260" height="150" rx="10" class="box judge"/>
+  <text x="346" y="333" class="h">Claude</text>
+  <text x="346" y="352" class="m">judge/claude_judge.py</text>
+  <text x="346" y="373" class="t">claude -p, headless, no tools</text>
+  <text x="346" y="391" class="t">sees the whole company at once</text>
+  <text x="346" y="409" class="t">decides in 5 steps (panel, right)</text>
+  <text x="346" y="429" class="t">subscription · resumable at limits</text>
+  <text x="346" y="447" class="t">UK: right manager 57.5% raw</text>
+
+  <rect x="620" y="310" width="260" height="150" rx="10" class="box judge"/>
+  <text x="636" y="333" class="h">Laya (baseline)</text>
+  <text x="636" y="352" class="m">judge/laya_*.py</text>
+  <text x="636" y="373" class="t">free local decision model</text>
+  <text x="636" y="391" class="t">Choice / Score questions</text>
+  <text x="636" y="409" class="t">matches wording, not seniority</text>
+  <text x="636" y="429" class="t">kept to show what doesn't work</text>
+  <text x="636" y="447" class="t">UK: right manager 0.5–2.3% raw</text>
+
+  <!-- 5-step panel -->
+  <rect x="906" y="276" width="254" height="372" rx="12" fill="#faf8ff" stroke="#c3b1ef" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="922" y="300" class="h">How a model judge decides</text>
+  <rect x="922" y="314" width="222" height="52" rx="8" class="step"/>
+  <circle cx="940" cy="340" r="11" fill="#7c3aed"/><text x="936.5" y="344" class="num">1</text>
+  <text x="960" y="334" class="h" font-size="13">Level</text>
+  <text x="960" y="353" class="st">Score 1–10, in this company</text>
+  <path id="s1" d="M1033 366 V380" class="line" marker-end="url(#arrow)"/>
+  <rect x="922" y="380" width="222" height="52" rx="8" class="step"/>
+  <circle cx="940" cy="406" r="11" fill="#7c3aed"/><text x="936.5" y="410" class="num">2</text>
+  <text x="960" y="400" class="h" font-size="13">Domain</text>
+  <text x="960" y="419" class="st">unit, division or function</text>
+  <path id="s2" d="M1033 432 V446" class="line" marker-end="url(#arrow)"/>
+  <rect x="922" y="446" width="222" height="52" rx="8" class="step"/>
+  <circle cx="940" cy="472" r="11" fill="#7c3aed"/><text x="936.5" y="476" class="num">3</text>
+  <text x="960" y="466" class="h" font-size="13">Manager in domain</text>
+  <text x="960" y="485" class="st">same domain, same/higher level</text>
+  <path id="s3" d="M1033 498 V512" class="line" marker-end="url(#arrow)"/>
+  <rect x="922" y="512" width="222" height="52" rx="8" class="step"/>
+  <circle cx="940" cy="538" r="11" fill="#7c3aed"/><text x="936.5" y="542" class="num">4</text>
+  <text x="960" y="532" class="h" font-size="13">Fallback</text>
+  <text x="960" y="551" class="st">senior elsewhere, or the top</text>
+  <path id="s4" d="M1033 564 V578" class="line" marker-end="url(#arrow)"/>
+  <rect x="922" y="578" width="222" height="52" rx="8" class="step"/>
+  <circle cx="940" cy="604" r="11" fill="#7c3aed"/><text x="936.5" y="608" class="num">5</text>
+  <text x="960" y="598" class="h" font-size="13">Confidence</text>
+  <text x="960" y="617" class="st">chance the pick is exactly right</text>
+
+  <!-- judges join into one line, down to Calibrate -->
+  <path id="c1" d="M170 460 V492 H210 V532" class="line" marker-end="url(#arrow)"/>
+  <path id="c2" d="M460 460 V492 H210 V532" class="line" marker-end="url(#arrow)"/>
+  <path id="c3" d="M750 460 V492 H210 V532" class="line" marker-end="url(#arrow)"/>
+  <text x="480" y="485" class="t" fill="#6b7280">predictions: manager · confidence · reason</text>
+
+  <!-- ============ 3 · Harness ============ -->
+  <text x="40" y="520" class="sec">3 · Harness</text>
+  <rect x="40" y="532" width="200" height="100" rx="10" class="box harness"/>
+  <text x="56" y="555" class="h">Calibrate</text>
+  <text x="56" y="574" class="m">harness/calibrate.py</text>
+  <text x="56" y="595" class="t">fit on the UK answer key,</text>
+  <text x="56" y="613" class="t">each org by the other 12</text>
+
+  <rect x="262" y="532" width="200" height="100" rx="10" class="box harness"/>
+  <text x="278" y="555" class="h">Draw only if ≥ 0.8</text>
+  <text x="278" y="576" class="t">a wrong line costs 4×</text>
+  <text x="278" y="594" class="t">a missing one; otherwise</text>
+  <text x="278" y="612" class="t">"not placed" + the reason</text>
+
+  <rect x="484" y="532" width="200" height="100" rx="10" class="box harness"/>
+  <text x="500" y="555" class="h">Score</text>
+  <text x="500" y="574" class="m">harness/run.py</text>
+  <text x="500" y="595" class="t">precision · right chain</text>
+  <text x="500" y="613" class="t">coverage · Brier</text>
+
+  <rect x="706" y="532" width="174" height="100" rx="10" class="box harness"/>
+  <text x="722" y="555" class="h">Export</text>
+  <text x="722" y="574" class="m">harness/export.py</text>
+  <text x="722" y="595" class="t">all results into one</text>
+  <text x="722" y="613" class="m">org_chart.duckdb</text>
+
+  <path id="d1" d="M240 582 H262" class="line" marker-end="url(#arrow)"/>
+  <path id="d2" d="M462 582 H484" class="line" marker-end="url(#arrow)"/>
+  <path id="d3" d="M684 582 H706" class="line" marker-end="url(#arrow)"/>
+
+  <!-- ============ 4 · App ============ -->
+  <text x="40" y="680" class="sec">4 · App</text>
+  <path id="e1" d="M793 632 V660 H250 V692" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="692" width="260" height="140" rx="10" class="box app"/>
+  <text x="56" y="715" class="h">What the app reads</text>
+  <text x="56" y="734" class="m">app/org_chart.duckdb</text>
+  <text x="56" y="755" class="t">people · answer_key · datasets</text>
+  <text x="56" y="773" class="t">every dataset and judge, read-only</text>
+  <text x="56" y="791" class="t">the hosted app never runs a</text>
+  <text x="56" y="809" class="t">model; it only reads results</text>
+
+  <path id="e2" d="M300 762 H330" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="330" y="692" width="550" height="140" rx="10" class="box app"/>
+  <text x="346" y="715" class="h">Streamlit app</text>
+  <text x="346" y="734" class="m">app/app.py · app/org_chart.py</text>
+  <text x="346" y="755" class="t"><tspan font-weight="700">Sidebar</tspan>  dataset · judge · threshold · company · domain · Docs</text>
+  <text x="346" y="774" class="t"><tspan font-weight="700">Front page</tspan>  headline numbers · judges compared · companies table</text>
+  <text x="346" y="793" class="t"><tspan font-weight="700">Company page</tspan>  expandable org chart · green = matches the answer</text>
+  <text x="346" y="812" class="t">key · red = wrong · "not placed" with the reason · source links (ASX)</text>
+
+  <!-- results -->
+  <rect x="906" y="672" width="254" height="160" rx="12" fill="#f8fafc" stroke="#d6dae1" stroke-width="1.2"/>
+  <text x="922" y="696" class="h">Results on real UK data</text>
+  <text x="922" y="716" class="t" fill="#6b7280">3,171 people · threshold 0.8</text>
+  <text x="922" y="742" class="t"><tspan font-weight="700">Claude</tspan>  935 lines · 88.3% right</text>
+  <text x="922" y="760" class="t">94.8% right chain · 29.5% coverage</text>
+  <text x="922" y="786" class="t"><tspan font-weight="700">Rules</tspan>  12 lines · all wrong</text>
+  <text x="922" y="810" class="t"><tspan font-weight="700">Laya</tspan>  0 lines</text>
+
+  <!-- moving dots: data flowing along each arrow -->
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#a1"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#a2"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#a3"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#b1"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#b2"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#b3"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#s1"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#s2"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#s3"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#s4"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="1.60s" repeatCount="indefinite"><mpath href="#c1"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="4.60s" repeatCount="indefinite"><mpath href="#c2"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="8.74s" repeatCount="indefinite"><mpath href="#c3"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#d1"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#d2"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#d3"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="8.61s" repeatCount="indefinite"><mpath href="#e1"/></animateMotion></circle>
+  <circle r="3.6" class="dot"><animateMotion dur="0.90s" repeatCount="indefinite"><mpath href="#e2"/></animateMotion></circle>
+</svg>

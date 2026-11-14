@@ -1,27 +1,32 @@
 """
-harness/export.py  -  copy finished results into app/results/ for the app
+harness/export.py  -  build app/org_chart.duckdb, the one database the app reads
 
-The hosted app can't run Claude or Laya, and data/**/output/ isn't in git. So after the
-harness has scored a dataset, this writes one small CSV per (dataset, judge) with just what
-the app shows, into app/results/<dataset>/<judge>.csv (tracked; public data only).
+The hosted app can't run Claude or Laya, and data/**/output/ isn't in git, so finished results
+are shipped with the app in a single DuckDB file (tracked; public data only):
+
+  people      one row per (dataset, judge, person): title, unit, proposed manager, confidence,
+              reason, level, domain, is_top, source_url
+  answer_key  one row per (dataset, person) whose real manager is known
+  datasets    what each dataset is, and which judges it has
 
     python -m harness.run --judge rules laya laya_staged claude --data uk asx
     python -m harness.export
 
-Synthetic data isn't exported: it is 158k people, and the app rebuilds it itself.
+Synthetic data (seed 42, rules judge) is included, so the app never rebuilds it on the server.
 """
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 
 from harness.run import DATASETS
 from judge.decisions import TOP
 
-OUT = Path(__file__).parent.parent / "app" / "results"
-REAL = ["uk", "asx"]
+DB = Path(__file__).parent.parent / "app" / "org_chart.duckdb"
+JUDGE_ORDER = ["claude", "rules", "laya_staged", "laya"]
 COLUMNS = ["company_id", "company_name", "industry", "employee_id", "full_name", "title",
            "department", "pred_manager_id", "confidence", "reason", "level", "domain",
-           "is_top", "true_manager_id", "source_url"]
+           "is_top", "source_url"]
 
 
 def judge_frame(data_dir, judge):
@@ -49,25 +54,46 @@ def judge_frame(data_dir, judge):
 
 
 def main():
-    for name in REAL:
-        data_dir = Path(DATASETS[name])
+    people, keys, meta = [], [], []
+    for name in ["synthetic", "uk", "asx"]:
+        data_dir = Path(DATASETS["seed42" if name == "synthetic" else name])
         truth = pd.read_csv(data_dir / "truth.csv")
-        keep = ["employee_id", "true_manager_id"] + \
-            (["source_url"] if "source_url" in truth else [])
-        for judge in ["rules", "claude", "laya", "laya_staged"]:
+        in_data = truth[truth.in_dataset.astype(bool)] if "in_dataset" in truth else truth
+        known = in_data[in_data.true_manager_id.notna()]
+        keys.append(known[["company_id", "employee_id", "true_manager_id"]].assign(dataset=name))
+        sources = truth[["employee_id", "source_url"]] if "source_url" in truth else None
+        judges = []
+        for judge in JUDGE_ORDER:
             pred = judge_frame(data_dir, judge)
             if pred is None:
                 continue
-            pred = pred.drop(columns=[c for c in keep[1:] if c in pred]).merge(
-                truth[keep], on="employee_id", how="left")
+            if sources is not None:
+                pred = pred.drop(columns=["source_url"], errors="ignore").merge(
+                    sources, on="employee_id", how="left")
             for col in COLUMNS:
                 if col not in pred:
                     pred[col] = None
-            (OUT / name).mkdir(parents=True, exist_ok=True)
-            path = OUT / name / f"{judge}.csv"
-            pred[COLUMNS].to_csv(path, index=False)
-            print(f"{path.relative_to(OUT.parent.parent)}: {len(pred)} people, "
-                  f"{pred.pred_manager_id.notna().sum()} proposed lines")
+            people.append(pred[COLUMNS].assign(dataset=name, judge=judge))
+            judges.append(judge)
+        meta.append(dict(dataset=name, judges=",".join(judges), people=len(in_data),
+                         known_managers=len(known)))
+
+    DB.unlink(missing_ok=True)
+    con = duckdb.connect(str(DB))
+    all_people = pd.concat(people, ignore_index=True)
+    all_people["is_top"] = all_people.is_top.fillna(False).astype(bool)
+    for col in ["confidence", "level"]:
+        all_people[col] = pd.to_numeric(all_people[col])
+    all_keys, all_meta = pd.concat(keys, ignore_index=True), pd.DataFrame(meta)
+    con.execute("CREATE TABLE people AS SELECT * FROM all_people ORDER BY dataset, judge, "
+                "company_id, employee_id")
+    con.execute("CREATE TABLE answer_key AS SELECT * FROM all_keys ORDER BY dataset, employee_id")
+    con.execute("CREATE TABLE datasets AS SELECT * FROM all_meta")
+    con.close()
+    for row in all_meta.itertuples():
+        print(f"{row.dataset}: {row.people:,} people, {row.known_managers:,} known managers, "
+              f"judges {row.judges}")
+    print(f"{DB.relative_to(DB.parent.parent)}: {DB.stat().st_size / 1e6:.1f} MB")
 
 
 if __name__ == "__main__":

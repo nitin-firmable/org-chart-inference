@@ -24,6 +24,8 @@ def build_payload(view, show_truth):
             "l": None if pd.isna(r.level) else int(r.level),
             "d": r.domain if isinstance(r.domain, str) else "",
             "top": bool(r.is_top) and not mgr,
+            "new": bool(getattr(r, "is_new", False)),
+            "gone": r.gone if isinstance(getattr(r, "gone", None), str) else "",
             "m": mgr,
             "c": round(float(r.confidence), 2) if mgr else None,
             "ok": bool(r.manager_id == r.true_manager_id) if (show_truth and mgr) else None,
@@ -91,6 +93,12 @@ TEMPLATE = r"""
   .card.ok { background:var(--ok-bg); border-color:var(--ok-edge); }
   .card.bad { background:var(--bad-bg); border-color:var(--bad-edge); }
   .card.open { outline:2px solid var(--accent); outline-offset:1px; }
+  .card.new { box-shadow:0 0 0 2px var(--accent); }
+  .card.gone .avatar, .card.gone .name, .card.gone .title { filter:blur(2.2px); opacity:.55; }
+  .badge { display:inline-block; font-size:10.5px; font-weight:600; border-radius:6px;
+           padding:1px 6px; margin:2px 0 1px; }
+  .badge.new { background:#e6efff; color:var(--accent); }
+  .badge.gone { background:#fdecec; color:#a33a3a; }
   .avatar { flex:0 0 34px; height:34px; border-radius:50%; color:#fff; font-size:13px;
             font-weight:600; display:flex; align-items:center; justify-content:center; }
   .body { min-width:0; flex:1; }
@@ -147,16 +155,19 @@ function esc(s) {
 function card(id, sec, rowIdx) {
   const n = N[id], el = document.createElement("div");
   const open = state[sec][rowIdx] === id;
-  el.className = "card" + (n.ok === true ? " ok" : n.ok === false ? " bad" : "") + (open ? " open" : "");
+  el.className = "card" + (n.ok === true ? " ok" : n.ok === false ? " bad" : "") + (open ? " open" : "") +
+                 (n.new ? " new" : "") + (n.gone ? " gone" : "");
   el.dataset.id = id;
   let meta;
+  const badge = n.gone ? '<div class="badge gone">Left → ' + esc(n.gone) + '</div>'
+              : n.new ? '<div class="badge new">NEW</div>' : '';
   if (n.m) meta = "line confidence " + n.c.toFixed(2);
   else if (n.top) meta = "heads the organisation";
   else meta = n.why ? "not placed: " + esc(n.why) : "not placed";
   const about = [n.l !== null ? "level " + n.l : "", n.d ? esc(n.d) : ""].filter(Boolean).join(" · ");
   el.innerHTML =
     '<div class="avatar" style="background:' + colour(n.n) + '">' + esc(initials(n.n)) + '</div>' +
-    '<div class="body"><div class="name" title="' + esc(n.n) + '">' + esc(n.n) + '</div>' +
+    '<div class="body">' + badge + '<div class="name" title="' + esc(n.n) + '">' + esc(n.n) + '</div>' +
     '<div class="title" title="' + esc(n.t) + '">' + esc(n.t) + '</div>' +
     (about ? '<div class="meta" title="' + about + '">' + about + '</div>' : '') +
     '<div class="meta">' + meta + '</div></div>';

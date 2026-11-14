@@ -5,13 +5,13 @@ judge (rules, Claude, Laya). Front page: overall results, judges compared, and a
 sortable table of companies. Click a row (or use the sidebar) to open that company's org chart.
 Run locally from the repo root with:  streamlit run app/app.py
 
-Real-data results come from app/results/ (written by `python -m harness.export`), because the
-hosted app can't run the model judges itself. Synthetic data is rebuilt here when missing.
+Everything comes from one shared DuckDB file, app/org_chart.duckdb (built by
+`python -m harness.export`), opened read-only: the hosted app never runs a model judge.
 """
 import sys
-import threading
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 import streamlit as st
 
@@ -19,8 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))          # Streamlit only puts app/ on the path; we need the root
 from app import org_chart  # noqa: E402
 
-SYNTHETIC = ROOT / "data/synthetic/output/seed42"
-RESULTS = ROOT / "app/results"
+DB = ROOT / "app/org_chart.duckdb"
 DATASETS = {"synthetic": "Synthetic (500 companies)", "uk": "UK government (real)",
             "asx": "ASX/NZX leadership (real)"}
 ABOUT = {
@@ -38,50 +37,33 @@ st.set_page_config(page_title="Org Chart Inference", layout="wide")
 
 
 @st.cache_resource
-def build_lock():
-    return threading.Lock()        # one lock shared by every visitor's session
-
-
-def is_stale():
-    # Missing files, or files made by an older version of the code
-    return (not (SYNTHETIC / "predictions.csv").exists()
-            or not (SYNTHETIC / "truth.csv").exists()
-            or "scenario" not in pd.read_csv(SYNTHETIC / "truth.csv", nrows=1).columns
-            or "rule_confidence" not in pd.read_csv(SYNTHETIC / "predictions.csv",
-                                                    nrows=1).columns)
+def db():
+    """One read-only connection shared by every visitor; each query uses its own cursor."""
+    return duckdb.connect(str(DB), read_only=True)
 
 
 def judges_for(data):
-    if data == "synthetic":
-        return ["rules"]
-    return [j for j in JUDGES if (RESULTS / data / f"{j}.csv").exists()]
+    row = db().cursor().execute("SELECT judges FROM datasets WHERE dataset = ?",
+                                [data]).fetchone()
+    return row[0].split(",") if row else []
 
 
 @st.cache_data
 def load(data, judge):
     """Returns (people, scored): everyone with the judge's answer, and the people who have
     a known manager to find (built like harness/evaluate.py, so the numbers match)."""
-    if data != "synthetic":
-        people = pd.read_csv(RESULTS / data / f"{judge}.csv")
-        scored = people[people.true_manager_id.notna()][
-            ["company_id", "employee_id", "true_manager_id", "pred_manager_id", "confidence"]]
-        return people, scored
-    # On a fresh server (e.g. Streamlit Cloud) the CSVs don't exist yet: build them once.
-    # The lock stops two visitors from rebuilding at the same time; the second one waits,
-    # then finds fresh files and skips the rebuild.
-    with build_lock():
-        if is_stale():
-            from data.synthetic import generate as generate_data
-            from judge import rules as infer
-            generate_data.main(out=SYNTHETIC)
-            infer.main(SYNTHETIC)
-    pred = pd.read_csv(SYNTHETIC / "predictions.csv")
-    truth = pd.read_csv(SYNTHETIC / "truth.csv")
-    pred["domain"], pred["is_top"] = pred.function, pred.level == 1
-    scored = truth[truth.in_dataset.astype(bool) & truth.true_manager_id.notna()][
-        ["company_id", "employee_id", "true_manager_id"]].merge(
-        pred[["employee_id", "pred_manager_id", "confidence"]], on="employee_id", how="left")
-    people = pred.merge(truth[["employee_id", "true_manager_id"]], on="employee_id", how="left")
+    con = db().cursor()
+    people = con.execute("""
+        SELECT p.* EXCLUDE (dataset, judge), k.true_manager_id
+        FROM people p
+        LEFT JOIN answer_key k ON k.dataset = p.dataset AND k.employee_id = p.employee_id
+        WHERE p.dataset = ? AND p.judge = ?""", [data, judge]).df()
+    scored = con.execute("""
+        SELECT k.company_id, k.employee_id, k.true_manager_id, p.pred_manager_id, p.confidence
+        FROM answer_key k
+        LEFT JOIN people p ON p.dataset = k.dataset AND p.employee_id = k.employee_id
+                          AND p.judge = ?
+        WHERE k.dataset = ?""", [judge, data]).df()
     return people, scored
 
 

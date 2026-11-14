@@ -9,3 +9,6 @@ Data - Take Home Task_ Org Chart Inference _ Notion_files/
 
 # Personal Claude Code settings (the shared ones in .claude/settings.json are committed)
 .claude/settings.local.json
+
+# API keys for the app (local); on Streamlit Cloud they go in Settings -> Secrets
+.streamlit/secrets.toml

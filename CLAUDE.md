@@ -44,8 +44,8 @@ git-ignored; everything is reproducible (app data seed 42, held-out seed 7, trai
   then `python -m judge.rules data/scraped/output/uk` and the harness
 - Retrain confidence: `python -m judge.train_confidence` (`python -m judge.rules --rules` = no tree)
 - Compare judges: `python -m harness.run --judge rules claude laya laya_staged --data uk asx`,
-  then `python -m harness.export` -> `app/results/<dataset>/<judge>.csv` (tracked: the hosted
-  app reads real-data results from there; it can't run the model judges)
+  then `python -m harness.export` -> `app/org_chart.duckdb` (tracked, ~7 MB: every dataset and
+  judge plus the answer keys; the app opens it read-only and never runs a model judge)
 - App: `streamlit run app/app.py` (Streamlit Cloud: main file path `app/app.py`); dataset and
   judge pickers, URL `?data=uk&judge=claude&company=UK02`
 
