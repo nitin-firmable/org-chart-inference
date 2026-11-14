@@ -35,9 +35,10 @@ messy data:
   `GEMINI_API_KEY`), Claude via the `claude` CLI when the app runs locally, else rules.
 - **Docs:** the sidebar button opens the animated flow diagram (`app/flow.svg`).
 
-- **Dataset and judge pickers:** synthetic (500 companies, rules judge), UK government
-  organograms (real, with answer key) and ASX/NZX leadership teams (real, with source links),
-  each with every judge that has results: Claude, rules, Laya. Links keep the choice, e.g. `?data=uk&judge=claude&company=UK10`.
+- **One list of every company** across the three datasets (generated benchmark, UK government
+  organograms with answer key, ASX/NZX leadership teams with source links), with a Dataset column
+  and filter buttons. Each dataset uses the judge that works on it: rules for the benchmark,
+  Claude for UK and ASX. Links open a company directly, e.g. `?company=UK10`.
 
 - **Front page:** overall precision and coverage, plus a table of all 500 companies (name,
   industry, employees, coverage, precision). You can search it, sort it by any column, and

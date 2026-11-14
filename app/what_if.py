@@ -3,8 +3,9 @@ what_if.py  -  one visitor's "what if" edits, as session tables over the shared 
 
 Each session gets its own in-memory DuckDB with the shared app/org_chart.duckdb attached
 read-only, plus four small tables: added, removed, overrides (re-placed reports) and log.
-Every action gets an edit number, so Undo deletes the latest one. Edits are kept per dataset
-and apply to every judge's view. Nothing is ever written to the shared file.
+Every action gets an edit number, so Undo deletes the latest one. Company and employee ids are
+unique across datasets, so one set of edits covers every dataset. Nothing is ever written to
+the shared file.
 """
 import duckdb
 import pandas as pd
@@ -31,32 +32,34 @@ class WhatIf:
         self.last_no = 0
 
     # ------------------------------------------------------------------ reading
-    def counts(self, data):
-        q = "SELECT count(*) FROM {} WHERE dataset = ?"
-        return {t: self.con.execute(q.format(t), [data]).fetchone()[0]
+    def counts(self):
+        return {t: self.con.execute(f"SELECT count(*) FROM {t}").fetchall()[0][0]
                 for t in ["added", "removed", "overrides"]}
 
-    def has_edits(self, data):
-        return any(self.counts(data).values())
+    def has_edits(self):
+        return any(self.counts().values())
 
-    def changed(self, data):
+    def changed(self):
         return set(self.con.execute("""
-            SELECT employee_id FROM added WHERE dataset = $d
-            UNION SELECT employee_id FROM removed WHERE dataset = $d
-            UNION SELECT employee_id FROM overrides WHERE dataset = $d""", {"d": data})
-            .df().employee_id)
+            SELECT employee_id FROM added UNION SELECT employee_id FROM removed
+            UNION SELECT employee_id FROM overrides""").df().employee_id)
 
-    def people(self, data, judge):
-        """The judge's view of the dataset with this session's edits applied."""
+    def changed_companies(self, people):
+        ids = self.changed()
+        return set(people[people.employee_id.isin(ids)].company_id)
+
+    def people(self, pairs):
+        """Every (dataset, judge) in pairs, with this session's edits applied."""
+        self.con.execute("CREATE OR REPLACE TEMP TABLE shown (dataset VARCHAR, judge VARCHAR)")
+        self.con.executemany("INSERT INTO shown VALUES (?, ?)", list(pairs))
         return self.con.execute("""
             WITH base AS (
-                SELECT * EXCLUDE (dataset, judge), FALSE AS is_new
-                FROM shared.people WHERE dataset = $d AND judge = $j
+                SELECT p.*, FALSE AS is_new FROM shared.people p
+                JOIN shown s ON s.dataset = p.dataset AND s.judge = p.judge
                 UNION ALL BY NAME
-                SELECT * EXCLUDE (edit_no, dataset, judge), TRUE AS is_new
-                FROM added WHERE dataset = $d
+                SELECT * EXCLUDE (edit_no), TRUE AS is_new FROM added
             ), o AS (
-                SELECT * FROM overrides WHERE dataset = $d
+                SELECT * FROM overrides
                 QUALIFY row_number() OVER (PARTITION BY employee_id ORDER BY edit_no DESC) = 1
             )
             SELECT b.* REPLACE (
@@ -68,26 +71,25 @@ class WhatIf:
                    o.old_manager_id AS moved_from, r.destination AS gone, k.true_manager_id
             FROM base b
             LEFT JOIN o ON o.employee_id = b.employee_id
-            LEFT JOIN removed r ON r.dataset = $d AND r.employee_id = b.employee_id
-            LEFT JOIN shared.answer_key k ON k.dataset = $d AND k.employee_id = b.employee_id
-            """, {"d": data, "j": judge}).df()
+            LEFT JOIN removed r ON r.employee_id = b.employee_id
+            LEFT JOIN shared.answer_key k ON k.dataset = b.dataset AND k.employee_id = b.employee_id
+            """).df()
 
-    def last_change(self, data):
+    def last_change(self):
         """The latest action's people: what happened to each, for the result summary."""
-        no = self.con.execute("SELECT max(edit_no) FROM log WHERE dataset = ?",
-                              [data]).fetchone()[0]
+        no = self.con.execute("SELECT max(edit_no) FROM log").fetchall()[0][0]
         if no is None:
             return None, pd.DataFrame()
         return no, self.con.execute("SELECT employee_id, action, judge FROM log "
-                                    "WHERE dataset = ? AND edit_no = ?", [data, no]).df()
+                                    "WHERE edit_no = ?", [no]).df()
 
     # ------------------------------------------------------------------ writing
     def _next(self):
         self.last_no += 1
         return self.last_no
 
-    def add(self, data, judge, company, rows, backend, secrets, current, edit_no=None):
-        """company: dict(company_id, company_name, industry); rows: [(name, designation)]."""
+    def add(self, company, rows, backend, secrets, current, edit_no=None):
+        """company: dict(company_id, company_name, industry, dataset); rows: [(name, title)]."""
         no = edit_no or self._next()
         new = pd.DataFrame([dict(
             company_id=company["company_id"], company_name=company["company_name"],
@@ -117,18 +119,20 @@ class WhatIf:
         new["confidence"] = pd.to_numeric(new.confidence)
         new["level"] = pd.to_numeric(new.level)
         new["is_top"] = new.is_top.astype(bool)
-        new = new.assign(edit_no=no, dataset=data, judge=judge)
+        new = new.assign(edit_no=no, dataset=company["dataset"], judge="live")
         self.con.execute("INSERT INTO added BY NAME SELECT * FROM new")
-        entries = pd.DataFrame({"edit_no": no, "dataset": data, "employee_id": new.employee_id,
+        entries = pd.DataFrame({"edit_no": no, "dataset": company["dataset"],
+                                "employee_id": new.employee_id,
                                 "action": "joined" if edit_no else "added", "judge": backend})
         self.con.execute("INSERT INTO log BY NAME SELECT * FROM entries")
         return no
 
-    def remove(self, data, judge, company_id, leavers, backend, secrets, current, companies):
+    def remove(self, company_id, leavers, backend, secrets, current, companies):
         """leavers: {employee_id: dict(dest_id, new_org, designation)}. Their direct reports
         are re-judged among the people who stay; movers are added to their new company."""
         no = self._next()
         co = current[(current.company_id == company_id) & current.gone.isna()]
+        data = companies[company_id]["dataset"]
         name_of = dict(zip(co.employee_id, co.full_name))
         title_of = dict(zip(co.employee_id, co.title))
         for pid, dest in leavers.items():
@@ -162,21 +166,19 @@ class WhatIf:
                 continue
             if dest["dest_id"] == NEW_ORG:
                 company = dict(company_id=f"NEW{no:03d}", company_name=dest["new_org"],
-                               industry="Added (what-if)")
+                               industry="Added (what-if)", dataset="added")
             else:
                 company = companies[dest["dest_id"]]
-            self.add(data, judge, company, [(name_of[pid], dest["designation"] or title_of[pid])],
+            self.add(company, [(name_of[pid], dest["designation"] or title_of[pid])],
                      backend, secrets, current, edit_no=no)
         return no
 
-    def undo(self, data):
-        no = self.con.execute("SELECT max(edit_no) FROM log WHERE dataset = ?",
-                              [data]).fetchone()[0]
+    def undo(self):
+        no = self.con.execute("SELECT max(edit_no) FROM log").fetchall()[0][0]
         if no is not None:
             for table in ["added", "removed", "overrides", "log"]:
-                self.con.execute(f"DELETE FROM {table} WHERE dataset = ? AND edit_no = ?",
-                                 [data, no])
+                self.con.execute(f"DELETE FROM {table} WHERE edit_no = ?", [no])
 
-    def reset(self, data):
+    def reset(self):
         for table in ["added", "removed", "overrides", "log"]:
-            self.con.execute(f"DELETE FROM {table} WHERE dataset = ?", [data])
+            self.con.execute(f"DELETE FROM {table}")

@@ -167,8 +167,8 @@
   <rect x="330" y="692" width="550" height="140" rx="10" class="box app"/>
   <text x="346" y="715" class="h">Streamlit app</text>
   <text x="346" y="734" class="m">app/app.py · app/org_chart.py</text>
-  <text x="346" y="755" class="t"><tspan font-weight="700">Sidebar</tspan>  dataset · judge · threshold · company · domain · Docs</text>
-  <text x="346" y="774" class="t"><tspan font-weight="700">Front page</tspan>  headline numbers · companies table</text>
+  <text x="346" y="755" class="t"><tspan font-weight="700">Sidebar</tspan>  company · threshold · domain · Docs</text>
+  <text x="346" y="774" class="t"><tspan font-weight="700">Front page</tspan>  all companies · dataset filter · numbers</text>
   <text x="346" y="793" class="t"><tspan font-weight="700">Company page</tspan>  expandable org chart · green = matches the answer</text>
   <text x="346" y="812" class="t">key · red = wrong · "not placed" with the reason · source links (ASX)</text>
 

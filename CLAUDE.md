@@ -49,8 +49,9 @@ git-ignored; everything is reproducible (app data seed 42, held-out seed 7, trai
 - Live edits: `app/what_if.py` (per-session DuckDB tables over the shared file, undo by edit
   number) + `judge/live.py` (Gemini key `GEMINI_API_KEY` in `.streamlit/secrets.toml`, git-ignored;
   else the `claude` CLI locally; else rules). Gemini's confidence is not calibrated yet.
-- App: `streamlit run app/app.py` (Streamlit Cloud: main file path `app/app.py`); dataset and
-  judge pickers, URL `?data=uk&judge=claude&company=UK02`
+- App: `streamlit run app/app.py` (Streamlit Cloud: main file path `app/app.py`); one list of all
+  companies with a dataset filter; each dataset's judge is fixed in `APP_JUDGE` (benchmark: rules,
+  UK/ASX: Claude); URL `?company=UK02`
 
 ## Current baseline (threshold 0.75), see docs/experiments.md
 Decision tree confidence, threshold 0.8 (wrong edge = 4x a missing edge):

@@ -1,8 +1,8 @@
 """
 app.py  -  Step 7
-Streamlit app. Pick a dataset (synthetic, or real: UK government, ASX/NZX leadership) and a
-judge (rules, Claude, Laya). Front page: overall results and a searchable,
-sortable table of companies. Click a row (or use the sidebar) to open that company's org chart.
+Streamlit app. Front page: one list of every company across the datasets (generated benchmark,
+UK government organograms, ASX/NZX leadership teams), with a dataset filter. Click a company's
+name (or use the sidebar) to open its org chart. Each dataset uses the judge that works on it.
 Run locally from the repo root with:  streamlit run app/app.py
 
 Everything comes from one shared DuckDB file, app/org_chart.duckdb (built by
@@ -24,20 +24,21 @@ from judge import live  # noqa: E402
 
 DB = ROOT / "app/org_chart.duckdb"
 FLOW = ROOT / "app/flow.svg"
-DATASETS = {"synthetic": "Benchmark · 500 companies", "uk": "UK government",
-            "asx": "ASX/NZX leadership"}
+DATASETS = {"uk": "UK government", "asx": "ASX/NZX leadership",
+            "synthetic": "Benchmark", "added": "Added (what-if)"}
 ABOUT = {
     "synthetic": "Generated benchmark companies (not real firms) with a hidden answer key.",
     "uk": "Senior civil servants from data.gov.uk organograms (Open Government Licence). "
           "Each post's real 'reports to' line is the answer key.",
     "asx": "Executive teams copied from each company's own leadership page (source on each "
            "company page). No answer key: only 2 managers are publicly stated.",
+    "added": "An organisation you added in this session.",
 }
-HAS_TRUTH = {"synthetic": True, "uk": True, "asx": False}
-# Judges shown in the app. Rules and Laya can't read real-world titles (blank or nonsense
-# charts), so on real data only Claude is shown; all judges stay in the DuckDB file and harness.
-APP_JUDGES = {"synthetic": ["rules"], "uk": ["claude"], "asx": ["claude"]}
-JUDGES = {"claude": "Claude", "rules": "Rules", "laya_staged": "Laya (staged)", "laya": "Laya"}
+HAS_TRUTH = {"synthetic": True, "uk": True, "asx": False, "added": False}
+# The judge each dataset is shown with. Rules and Laya can't read real-world titles (blank or
+# nonsense charts), so real data uses Claude; all judges stay in the DuckDB file and harness.
+APP_JUDGE = {"synthetic": "rules", "uk": "claude", "asx": "claude"}
+JUDGES = {"claude": "Claude", "rules": "Rules", "live": "live judge"}
 DEFAULT_THRESHOLD = 0.7                # app default; the harness scores at 0.8 (wrong line = 4x)
 
 st.set_page_config(page_title="Org Chart Inference", layout="wide")
@@ -49,29 +50,25 @@ def db():
     return duckdb.connect(str(DB), read_only=True)
 
 
-def judges_for(data):
-    row = db().cursor().execute("SELECT judges FROM datasets WHERE dataset = ?",
-                                [data]).fetchone()
-    have = row[0].split(",") if row else []
-    return [j for j in APP_JUDGES.get(data, have) if j in have] or have
-
-
 @st.cache_data
-def load(data, judge):
-    """Returns (people, scored): everyone with the judge's answer, and the people who have
-    a known manager to find (built like harness/evaluate.py, so the numbers match)."""
+def load():
+    """Returns (people, scored) for every dataset with its judge: everyone with the judge's
+    answer, and the people who have a known manager to find (built like the harness)."""
     con = db().cursor()
+    con.execute("CREATE OR REPLACE TEMP TABLE shown AS SELECT * FROM (VALUES "
+                + ", ".join(f"('{d}', '{j}')" for d, j in APP_JUDGE.items())
+                + ") t(dataset, judge)")
     people = con.execute("""
-        SELECT p.* EXCLUDE (dataset, judge), k.true_manager_id
-        FROM people p
+        SELECT p.*, k.true_manager_id
+        FROM people p JOIN shown s ON s.dataset = p.dataset AND s.judge = p.judge
         LEFT JOIN answer_key k ON k.dataset = p.dataset AND k.employee_id = p.employee_id
-        WHERE p.dataset = ? AND p.judge = ?""", [data, judge]).df()
+        """).df()
     scored = con.execute("""
-        SELECT k.company_id, k.employee_id, k.true_manager_id, p.pred_manager_id, p.confidence
-        FROM answer_key k
+        SELECT k.dataset, k.company_id, k.employee_id, k.true_manager_id,
+               p.pred_manager_id, p.confidence
+        FROM answer_key k JOIN shown s ON s.dataset = k.dataset
         LEFT JOIN people p ON p.dataset = k.dataset AND p.employee_id = k.employee_id
-                          AND p.judge = ?
-        WHERE k.dataset = ?""", [judge, data]).df()
+                          AND p.judge = s.judge""").df()
     return people, scored
 
 
@@ -113,74 +110,63 @@ def apply_threshold(frame, threshold):
     return frame
 
 
-def score(frame):
-    """Coverage and precision, as defined in evaluate.py."""
-    return frame.given.mean(), frame.right.sum() / max(frame.given.sum(), 1)
+def eligible(people, scored, threshold):
+    """The people coverage is measured over. With an answer key: people whose manager is known
+    (as in the harness). Without one: everyone except heads and people who left."""
+    truth = [d for d in people.dataset.unique() if HAS_TRUTH.get(d)]
+    known = apply_threshold(scored[scored.dataset.isin(truth)], threshold)
+    rest = apply_threshold(people[~people.dataset.isin(truth)], threshold)
+    rest = rest[~rest.is_top.astype(bool) & rest.gone.isna()]
+    return known, rest
 
 
 def measure(people, scored, threshold):
-    """(coverage, precision). With an answer key, over people whose manager is known (as in
-    the harness); without one, coverage over everyone but the head, and no precision."""
-    if HAS_TRUTH[data]:
-        return score(apply_threshold(scored, threshold))
-    p = apply_threshold(people, threshold)
-    keep = ~p.is_top.astype(bool)
-    if "gone" in p:
-        keep &= p.gone.isna()                      # people who left don't count
-    return p[keep].given.mean(), None
+    """(coverage, precision); precision only counts companies with an answer key."""
+    known, rest = eligible(people, scored, threshold)
+    n = len(known) + len(rest)
+    coverage = (known.given.sum() + rest.given.sum()) / n if n else 0.0
+    precision = known.right.sum() / max(known.given.sum(), 1) if len(known) else None
+    return coverage, precision
 
 
 ss = st.session_state
-
-# ---------------------------------------------------------------- dataset and judge
-# Defaults come from the URL (?data=uk&judge=claude&company=UK02), so links are shareable.
-if "data_select" not in ss:
-    from_url = st.query_params.get("data", "")
-    ss.data_select = from_url if from_url in DATASETS else "synthetic"
 ss.setdefault("table_version", 0)
 
-
-def dataset_changed():
-    ss.company_select = ""
-    ss.table_version += 1
-    ss.pop("judge_select", None)
-
-
-st.sidebar.selectbox("Dataset", list(DATASETS), key="data_select", format_func=DATASETS.get,
-                     on_change=dataset_changed)
-data = ss.data_select
-judges = judges_for(data)
-if ss.get("judge_select") not in judges:
-    from_url = st.query_params.get("judge", "")
-    ss.judge_select = from_url if from_url in judges else judges[0]
-st.sidebar.selectbox("Judge", judges, key="judge_select", format_func=JUDGES.get,
-                     on_change=lambda: ss.update(table_version=ss.table_version + 1))
-judge = ss.judge_select
-
-df, scored = load(data, judge)
-# This visitor's "what if" edits: session tables over the shared file, per dataset
+# ---------------------------------------------------------------- everyone, with session edits
+base, scored = load()
 if "what_if" not in ss:
     ss.what_if = WhatIf(DB)
 wi = ss.what_if
-editing = wi.has_edits(data)
+editing = wi.has_edits()
 if editing:
-    df = wi.people(data, judge)
-    scored = scored[~scored.employee_id.isin(wi.changed(data))]
+    df = wi.people(APP_JUDGE.items())
+    scored = scored[~scored.employee_id.isin(wi.changed())]
 else:
-    df = df.assign(is_new=False, moved_from=None, gone=None)
-# Fixed order (largest first, then by name): the table's clicked row is looked up here
-companies = (df[["company_id", "company_name", "industry"]].drop_duplicates("company_id")
+    df = base.assign(is_new=False, moved_from=None, gone=None)
+
+# Largest first, then by name; the table's clicked row is looked up in the filtered list
+companies = (df[["company_id", "company_name", "industry", "dataset"]]
+             .drop_duplicates("company_id")
              .merge(df.groupby("company_id").size().rename("size"), on="company_id")
              .sort_values(["size", "company_name"], ascending=[False, True])
              .reset_index(drop=True))
 company_label = dict(zip(companies.company_id,
                          companies.company_name + " (" + companies.company_id + ")"))
 company_info = {r.company_id: dict(company_id=r.company_id, company_name=r.company_name,
-                                   industry=r.industry) for r in companies.itertuples()}
+                                   industry=r.industry, dataset=r.dataset)
+                for r in companies.itertuples()}
+present = [d for d in DATASETS if d in set(companies.dataset)]
+ss.setdefault("dataset_filter", present)
+new_datasets = [d for d in present if d not in ss.get("seen_datasets", present)]
+if new_datasets:                       # e.g. "Added" after a new organisation: show it
+    ss.dataset_filter = list(ss.dataset_filter) + new_datasets
+ss.seen_datasets = present
+picked = [d for d in ss.dataset_filter if d in present] or present
+shown = companies[companies.dataset.isin(picked)].reset_index(drop=True)
 
 # ---------------------------------------------------------------- which company is open?
 # One source of truth: ss.company_select (also the sidebar dropdown's value).
-# Table clicks and the Back button write to it; the URL (?company=C001) mirrors it.
+# Table clicks and the Back button write to it; the URL (?company=UK10) mirrors it.
 if "company_select" not in ss:
     from_url = st.query_params.get("company", "")
     ss.company_select = from_url if from_url in company_label else ""
@@ -191,8 +177,8 @@ if ss.company_select not in company_label:
 table_key = f"company_table_{ss.table_version}"
 clicked = ss.get(table_key)
 cells = clicked["selection"].get("cells", []) if clicked else []
-if cells and cells[0][1] == "company_name":   # a click on a company's name opens it
-    ss.company_select = companies.company_id.iloc[cells[0][0]]
+if cells and cells[0][1] == "company_name" and cells[0][0] < len(shown):
+    ss.company_select = shown.company_id.iloc[cells[0][0]]   # a click on a name opens it
     ss.table_version += 1          # fresh table next time, so the old click doesn't stick
 
 
@@ -207,28 +193,31 @@ st.sidebar.selectbox("Company", [""] + sorted(companies.company_id, key=company_
                      format_func=lambda c: company_label.get(c, "All companies"))
 threshold = st.sidebar.slider(
     "Confidence threshold", 0.5, 1.0, DEFAULT_THRESHOLD, 0.05,
-    help=("Confidence comes from a decision tree trained on a separate dataset."
-          if judge == "rules" else
-          "The model's confidence, calibrated on the UK answer key (each organisation by a "
-          "map fitted on the others).") +
-    " Default 0.7 shows more lines; 0.8 is the strict setting where a wrong line counts "
-    "4x worse than a missing one (the reported results use 0.8).")
-if HAS_TRUTH[data]:
-    show_truth = st.sidebar.checkbox("Show accuracy vs. answer key", value=True)
-else:
-    show_truth = False
-    st.sidebar.caption("No answer key for this dataset, so no accuracy to show.")
+    help="How sure a judge must be before a reporting line is drawn. Benchmark: a decision "
+         "tree's confidence; UK and ASX: Claude's confidence, calibrated on the UK answer key. "
+         "Default 0.7 shows more lines; 0.8 is the strict setting where a wrong line counts "
+         "4x worse than a missing one (the reported results use 0.8).")
+show_truth = st.sidebar.checkbox("Show accuracy vs. answer key", value=True)
 cid = ss.company_select
-st.query_params.update(data=data, judge=judge)
+data = company_info[cid]["dataset"] if cid else None
+for old in ["data", "judge"]:                       # links from before the combined list
+    st.query_params.pop(old, None)
 if cid:
     st.query_params["company"] = cid
 else:
     st.query_params.pop("company", None)
 
 st.title("Org Chart Inference")
-st.caption(f"{DATASETS[data]} · judge: {JUDGES[judge]}. {ABOUT[data]} "
-           "No line is drawn when confidence is below the threshold — "
-           "a wrong line is worse than no line.")
+if cid:
+    judge = APP_JUDGE.get(data, "live")
+    st.caption(f"{DATASETS[data]} · judge: {JUDGES[judge]}. {ABOUT[data]} No line is drawn "
+               "when confidence is below the threshold — a wrong line is worse than no line.")
+else:
+    st.caption("Reporting lines inferred from names and job titles only. Benchmark: generated "
+               "companies with a hidden answer key (rules judge). UK government: real "
+               "organograms with each post's real manager as the answer key (Claude). ASX/NZX: "
+               "real leadership teams, no answer key (Claude). No line is drawn when confidence "
+               "is below the threshold — a wrong line is worse than no line.")
 
 
 # ---------------------------------------------------------------- what if: add / remove people
@@ -253,7 +242,7 @@ def company_option(c):
 
 @st.dialog("Add people", width="large")
 def add_dialog(default_cid):
-    ids = companies.company_id.tolist()
+    ids = sorted(companies.company_id, key=company_label.get)
     pick = st.selectbox("Company", ids + [NEW_ORG], format_func=company_option,
                         index=ids.index(default_cid) if default_cid in ids else len(ids))
     new_org = st.text_input("New organisation name", placeholder="e.g. Acme Pty Ltd") \
@@ -284,10 +273,10 @@ def add_dialog(default_cid):
         return
     company = company_info.get(pick) or dict(company_id=f"NEW{wi.last_no + 1:03d}",
                                              company_name=new_org.strip(),
-                                             industry="Added (what-if)")
+                                             industry="Added (what-if)", dataset="added")
     try:
         with st.spinner(f"{live.LABELS[backend]} is placing {len(rows)} people…"):
-            wi.add(data, judge, company, rows, backend, secrets(), df)
+            wi.add(company, rows, backend, secrets(), df)
     except live.LiveJudgeError as exc:
         st.error(str(exc))
         return
@@ -303,7 +292,7 @@ def remove_dialog(cid):
     who = dict(zip(co.employee_id, co.full_name + " — " + co.title.fillna("(no title)")))
     picks = st.multiselect("Who is leaving?", list(who), format_func=who.get,
                            placeholder="Pick one or more people")
-    others = [c for c in companies.company_id if c != cid]
+    others = [c for c in sorted(companies.company_id, key=company_label.get) if c != cid]
     leavers = {}
     for pid in picks:
         with st.container(border=True):
@@ -325,7 +314,7 @@ def remove_dialog(cid):
         return
     try:
         with st.spinner(f"{live.LABELS[backend]} is re-placing their team…"):
-            wi.remove(data, judge, cid, leavers, backend, secrets(), df, company_info)
+            wi.remove(cid, leavers, backend, secrets(), df, company_info)
     except live.LiveJudgeError as exc:
         st.error(str(exc))
         return
@@ -336,23 +325,27 @@ def remove_dialog(cid):
 def what_if_bar():
     if not editing:
         return
-    c = wi.counts(data)
+    c = wi.counts()
+    touched = df[df.company_id.isin(wi.changed_companies(df))]
     with st.container(border=True):
         b1, b2, b3, b4 = st.columns([6, 1.3, 1, 1.7], vertical_alignment="center")
         b1.markdown(f"**What-if mode** · {c['added']} added · {c['removed']} removed · "
                     f"{c['overrides']} re-placed  \nOnly in your session; the shared data is "
                     "unchanged. Accuracy leaves out the people you changed.")
-        b2.button("Undo last", on_click=wi.undo, args=(data,), width="stretch")
-        b3.button("Reset", on_click=wi.reset, args=(data,), width="stretch")
-        b4.download_button("Download CSV", df.to_csv(index=False).encode(),
-                           f"what_if_{data}.csv", "text/csv", width="stretch")
+        b2.button("Undo last", on_click=wi.undo, width="stretch")
+        b3.button("Reset", on_click=wi.reset, width="stretch")
+        b4.download_button("Download CSV", touched.to_csv(index=False).encode(),
+                           "what_if_changed_companies.csv", "text/csv", width="stretch",
+                           help="The companies you changed, with your edits applied")
 
 
 def last_change_summary():
-    no, change = wi.last_change(data)
-    if no is None or ss.get("seen_change") == (data, no):
+    no, change = wi.last_change()
+    if no is None or ss.get("seen_change") == no:
         return
-    drawn = apply_threshold(df, threshold).set_index("employee_id")
+    drawn = apply_threshold(df[df.employee_id.isin(change.employee_id) |
+                               df.company_id.isin(wi.changed_companies(df))], threshold)
+    drawn = drawn.set_index("employee_id")
     name_of = dict(zip(df.employee_id, df.full_name))
     verbs = {"added": "added", "joined": "joined", "removed": "left", "moved": "re-placed"}
     rows = []
@@ -372,6 +365,8 @@ def last_change_summary():
                      "Change": verbs[r.action], "Reports to": boss, "Confidence": conf,
                      "Result": result})
     table = pd.DataFrame(rows)
+    if table.empty:
+        return
     if table.Company.nunique() == 1:
         table = table.drop(columns="Company")
     with st.container(border=True):
@@ -381,7 +376,7 @@ def last_change_summary():
                     f"confidence ≥ {threshold:.2f}" +
                     (" · Gemini's confidence isn't calibrated yet, so lower the threshold to "
                      "see its proposals" if backend == "gemini" else ""))
-        h2.button("Dismiss", on_click=lambda: ss.update(seen_change=(data, no)), width="stretch")
+        h2.button("Dismiss", on_click=lambda: ss.update(seen_change=no), width="stretch")
         st.dataframe(table, hide_index=True, width="stretch",
                      column_config={"Confidence": st.column_config.NumberColumn(format="%.2f")})
 
@@ -403,48 +398,57 @@ last_change_summary()
 
 # ================================================================ front page: all companies
 if not cid:
-    st.write("Click a company's name to see its org chart. Search with the magnifying "
-             "glass (top right of the table), sort by clicking a column header.")
+    st.write("Click a company's name to see its org chart. Filter by dataset, search with the "
+             "magnifying glass (top right of the table), sort by clicking a column header.")
     if st.button("＋ Add people", help="Add people to a company, or to a new organisation"):
         add_dialog(None)
-    s = apply_threshold(scored, threshold)
-    coverage, precision = measure(df, scored, threshold)
+    view_people = df[df.dataset.isin(picked)]
+    view_scored = scored[scored.dataset.isin(picked)]
+    coverage, precision = measure(view_people, view_scored, threshold)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Companies", f"{len(companies):,}")
-    c2.metric("People", f"{len(df):,}")
-    c3.metric("Coverage (all companies)", f"{coverage:.1%}",
+    c1.metric("Companies", f"{len(shown):,}")
+    c2.metric("People", f"{len(view_people):,}")
+    c3.metric("Coverage", f"{coverage:.1%}",
               help="Share of people (excluding the head of each organisation) who got a "
                    "manager")
-    if show_truth:
-        c4.metric("Precision (all companies)", f"{precision:.1%}",
-                  help="Of the reporting lines drawn, the share that match the answer key")
+    if show_truth and precision is not None:
+        c4.metric("Precision", f"{precision:.1%}",
+                  help="Of the reporting lines drawn, the share that match the answer key "
+                       "(companies with an answer key only)")
 
     st.subheader("Companies")
-    everyone = apply_threshold(df, threshold)
-    g = everyone.groupby("company_id")
-    gs = s.groupby("company_id")
-    cov = gs.given.mean() if show_truth else \
-        everyone[~everyone.is_top.astype(bool)].groupby("company_id").given.mean()
-    table = companies.set_index("company_id").join(pd.DataFrame({
-        "employees": df.groupby("company_id").size(),
-        "lines": g.given.sum(),
-        "coverage": 100 * cov,
-        "precision": 100 * gs.right.sum() / gs.given.sum().clip(lower=1),
+    st.pills("Dataset", present, selection_mode="multi", key="dataset_filter",
+             format_func=DATASETS.get, label_visibility="collapsed",
+             on_change=lambda: ss.update(table_version=ss.table_version + 1))
+    known, rest = eligible(view_people, view_scored, threshold)
+    eligible_rows = pd.concat([known[["company_id", "given"]], rest[["company_id", "given"]]])
+    table = shown.set_index("company_id").join(pd.DataFrame({
+        "lines": apply_threshold(view_people, threshold).groupby("company_id").given.sum(),
+        "coverage": 100 * eligible_rows.groupby("company_id").given.mean(),
+        "precision": 100 * known.groupby("company_id").right.sum()
+        / known.groupby("company_id").given.sum().clip(lower=1),
     })).reset_index(drop=True)
-    columns = ["company_name", "industry", "employees", "lines", "coverage"] + \
-        (["precision"] if show_truth else [])
+    table["dataset"] = table.dataset.map(DATASETS)
+    for col in ["coverage", "precision"]:          # numbers, so the columns sort correctly
+        table[col] = pd.to_numeric(table[col], errors="coerce").astype(float)
+    has_precision = show_truth and table.precision.notna().any()
+    columns = ["company_name", "dataset", "industry", "size", "lines", "coverage"] + \
+        (["precision"] if has_precision else [])
     st.dataframe(
         table, key=table_key, on_select="rerun", selection_mode="single-cell",
         hide_index=True, width="stretch", column_order=columns,
         height=min(560, 35 * (len(table) + 1) + 3),     # fit the rows: no empty lines
         column_config={
             "company_name": st.column_config.TextColumn(
-                "Company", help="Click a company's name to open its org chart"),
-            "industry": st.column_config.TextColumn("Industry"),
-            "employees": st.column_config.NumberColumn("Employees", format="%d"),
-            "lines": st.column_config.NumberColumn("Lines drawn", format="%d"),
-            "coverage": st.column_config.NumberColumn("Coverage", format="%.0f%%"),
-            "precision": st.column_config.NumberColumn("Precision", format="%.1f%%"),
+                "Company", help="Click a company's name to open its org chart", width=300),
+            "dataset": st.column_config.TextColumn("Dataset", width=135),
+            "industry": st.column_config.TextColumn("Industry", width=215),
+            "size": st.column_config.NumberColumn("Employees", format="%d", width=85),
+            "lines": st.column_config.NumberColumn("Lines drawn", format="%d", width=85),
+            "coverage": st.column_config.NumberColumn("Coverage", format="%.0f%%", width=80),
+            "precision": st.column_config.NumberColumn(
+                "Precision", format="%.1f%%", width=80,
+                help="Share of drawn lines that match the answer key; None where there is none"),
         })
     sidebar_docs()
     st.stop()
@@ -466,6 +470,9 @@ co["moved"] = [(f"was under {name_of.get(m, '?')}" +
 domains = ["All"] + sorted(co.domain.dropna().astype(str).unique().tolist())
 domain = st.sidebar.selectbox("Domain", domains,
                               help="Function, unit or division, as the judge read it")
+show_truth = show_truth and HAS_TRUTH.get(data, False)
+if not HAS_TRUTH.get(data, False):
+    st.sidebar.caption("No answer key for this company, so no accuracy to show.")
 
 # ---------------------------------------------------------------- headline numbers
 info = co.iloc[0]
@@ -476,7 +483,7 @@ c1.metric("Employees", len(co), help="People listed for this company")
 c2.metric("Industry", info.industry)
 c3.metric("Coverage", f"{coverage:.0%}",
           help="Share of people (excluding the head) who got a manager at this threshold")
-if show_truth:
+if show_truth and precision is not None:
     c4.metric("Precision", f"{precision:.1%}",
               help="Of the reporting lines drawn, the share that match the answer key")
 sources = co.source_url.dropna().unique() if "source_url" in co else []
@@ -486,20 +493,15 @@ if len(sources):
 # ---------------------------------------------------------------- the org chart
 view = co if domain == "All" else co[(co.domain == domain) | co.is_top.astype(bool)]
 st.subheader(f"{info.company_name} — {domain}")
-# Our own HTML: names and titles are escaped inside org_chart.py before display
 if not view.is_top.astype(bool).any() and not view.given.any():
     # Nothing to draw: say why instead of showing an empty chart
-    others = [j for j in judges if j != judge]
     with st.container(border=True):
-        st.markdown(f"**Nothing could be placed in this view.** The {JUDGES[judge]} judge found "
+        st.markdown(f"**Nothing could be placed in this view.** The {JUDGES[judge]} found "
                     "no head of the organisation and drew no reporting lines"
                     + (" for this domain. Try **All** domains." if domain != "All" else
                        f" at confidence ≥ {threshold:.2f}. It may not be able to read these "
-                       "titles, or it isn't confident enough: try a lower threshold"
-                       + (" or another judge." if others else ".")))
-        if "claude" in others:
-            st.button("Switch to Claude", type="primary",
-                      on_click=lambda: ss.update(judge_select="claude"))
+                       "titles, or it isn't confident enough: try a lower threshold."))
+# Our own HTML: names and titles are escaped inside org_chart.py before display
 st.iframe(org_chart.render_html(view, show_truth), height=720)
 
 # ---------------------------------------------------------------- lookups and gaps
