@@ -38,7 +38,7 @@ HAS_TRUTH = {"synthetic": True, "uk": True, "asx": False}
 # charts), so on real data only Claude is shown; all judges stay in the DuckDB file and harness.
 APP_JUDGES = {"synthetic": ["rules"], "uk": ["claude"], "asx": ["claude"]}
 JUDGES = {"claude": "Claude", "rules": "Rules", "laya_staged": "Laya (staged)", "laya": "Laya"}
-DEFAULT_THRESHOLD = 0.8                # wrong line = 4x a missing line
+DEFAULT_THRESHOLD = 0.7                # app default; the harness scores at 0.8 (wrong line = 4x)
 
 st.set_page_config(page_title="Org Chart Inference", layout="wide")
 
@@ -188,8 +188,9 @@ if ss.company_select not in company_label:
     ss.company_select = ""
 table_key = f"company_table_{ss.table_version}"
 clicked = ss.get(table_key)
-if clicked and clicked["selection"]["rows"]:
-    ss.company_select = companies.company_id.iloc[clicked["selection"]["rows"][0]]
+cells = clicked["selection"].get("cells", []) if clicked else []
+if cells and cells[0][1] == "company_name":   # a click on a company's name opens it
+    ss.company_select = companies.company_id.iloc[cells[0][0]]
     ss.table_version += 1          # fresh table next time, so the old click doesn't stick
 
 
@@ -207,7 +208,8 @@ threshold = st.sidebar.slider(
           if judge == "rules" else
           "The model's confidence, calibrated on the UK answer key (each organisation by a "
           "map fitted on the others).") +
-    " Default 0.8: a wrong line is treated as 4x worse than a missing one.")
+    " Default 0.7 shows more lines; 0.8 is the strict setting where a wrong line counts "
+    "4x worse than a missing one (the reported results use 0.8).")
 if HAS_TRUTH[data]:
     show_truth = st.sidebar.checkbox("Show accuracy vs. answer key", value=True)
 else:
@@ -398,7 +400,7 @@ last_change_summary()
 
 # ================================================================ front page: all companies
 if not cid:
-    st.write("Pick a company in the table to see its org chart. Search with the magnifying "
+    st.write("Click a company's name to see its org chart. Search with the magnifying "
              "glass (top right of the table), sort by clicking a column header.")
     if st.button("＋ Add people", help="Add people to a company, or to a new organisation"):
         add_dialog(None)
@@ -429,10 +431,11 @@ if not cid:
     columns = ["company_name", "industry", "employees", "lines", "coverage"] + \
         (["precision"] if show_truth else [])
     st.dataframe(
-        table, key=table_key, on_select="rerun", selection_mode="single-row",
+        table, key=table_key, on_select="rerun", selection_mode="single-cell",
         hide_index=True, width="stretch", height=560, column_order=columns,
         column_config={
-            "company_name": st.column_config.TextColumn("Company"),
+            "company_name": st.column_config.TextColumn(
+                "Company", help="Click a company's name to open its org chart"),
             "industry": st.column_config.TextColumn("Industry"),
             "employees": st.column_config.NumberColumn("Employees", format="%d"),
             "lines": st.column_config.NumberColumn("Lines drawn", format="%d"),
