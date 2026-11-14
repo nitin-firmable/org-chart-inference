@@ -1,4 +1,5 @@
-data/
+# Generated and downloaded data (the code next to it is tracked)
+data/**/output/
 __pycache__/
 .venv/
 

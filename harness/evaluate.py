@@ -1,14 +1,14 @@
 """
-evaluate.py  -  Step 6
+harness/evaluate.py  -  Step 6
 Compares predictions.csv with the hidden answer key truth.csv.
-Usage: python evaluate.py [data_dir]      (default: data)
+Usage: python -m harness.evaluate [data_dir]      (default: data/synthetic/output/seed42)
 """
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-DATA = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
+DATA = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/synthetic/output/seed42")
 truth = pd.read_csv(DATA / "truth.csv")
 for col, default in [("in_dataset", True), ("scenario", "normal"),
                      ("dotted_manager_id", None)]:          # older truth files lack these

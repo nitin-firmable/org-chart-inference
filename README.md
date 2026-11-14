@@ -56,7 +56,7 @@ Screenshots, in case the app is asleep:
 
 Designing the data so it could be scored was the first decision:
 
-1. **Truth first.** `generate_data.py` builds each company top-down (CEO -> C-level -> VP ->
+1. **Truth first.** `data/synthetic/generate.py` builds each company top-down (CEO -> C-level -> VP ->
    Director -> Manager -> ICs), so every person's real manager is known. It then writes a
    messy copy without the manager column. Inference only sees the messy copy.
 2. **Hard cases are labelled.** Every person carries a scenario tag (normal, unusual title,
@@ -68,13 +68,13 @@ Designing the data so it could be scored was the first decision:
 4. **I tested my own circularity.** I wrote the first rules on simpler data (99.1% precision),
    then built harder, realistic data. The same rules dropped to **84.0%**. That gap is the
    honest measure of "rules tuned to their own generator", and it drove the next round of work.
-5. **Wrong lines are not all equal.** `evaluate.py` separates skip-level errors (the boss's
+5. **Wrong lines are not all equal.** `harness/evaluate.py` separates skip-level errors (the boss's
    boss: right chain, too high) from dotted-line and other errors, and reports calibration,
    Brier score, and precision/coverage by level and by scenario.
 
 ## The data
 
-`python generate_data.py`: 500 companies, 100-1,200 employees each (55% small, 30% mid,
+`python -m data.synthetic.generate`: 500 companies, 100-1,200 employees each (55% small, 30% mid,
 15% large), 8 industries, 6 locations, 10 functions with teams, 8 seniority levels.
 
 Realism (hard cases, each tagged in the answer key):
@@ -91,7 +91,7 @@ a new held-out set.
 
 ## Approach
 
-1. **Read each title** (`infer.py`): clean and expand abbreviations, strip founder and
+1. **Read each title** (`judge/rules.py`): clean and expand abbreviations, strip founder and
    contractor wording, then read level by keyword priority (VP > Director > Junior > Manager >
    Senior; "Lead" depends on position), function from keywords or department, and team from
    the text after the comma.
@@ -102,7 +102,7 @@ a new held-out set.
 4. **Abstain with a reason** when it's ambiguous: several candidates, candidates without a
    team, an IC whose team manager is missing, a team that belongs to another function
    (dotted line?), a teamless "Head of" that might be the VP, or an unreadable title.
-5. **Score confidence with a decision tree** (`train_confidence.py`). It's trained on a separate
+5. **Score confidence with a decision tree** (`judge/train_confidence.py`). It's trained on a separate
    dataset, using 13 pieces of evidence behind each line (layers skipped, team present,
    candidate pool, teamless managers nearby ...). It has 9 leaves, and you can read them in
    [models/confidence_tree.txt](models/confidence_tree.txt). It's saved as JSON, so the app
@@ -146,29 +146,42 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-python generate_data.py        # data/truth.csv (answer key) + data/employees.csv (messy)
-python infer.py                # data/predictions.csv
-python evaluate.py             # precision, coverage, calibration, by level / scenario
-streamlit run app.py           # the app (builds the data itself if missing)
+Run everything from the repo root:
 
-python train_confidence.py     # retrain the confidence tree (seed 1)
-python generate_data.py --seed 7 --out data/holdout_seed7    # held-out check
-python infer.py data/holdout_seed7
-python evaluate.py data/holdout_seed7
+```
+python -m data.synthetic.generate   # truth.csv (answer key) + employees.csv (messy), in data/synthetic/output/seed42/
+python -m judge.rules               # predictions.csv
+python -m harness.evaluate          # precision, coverage, calibration, by level / scenario
+streamlit run app/app.py            # the app (builds the data itself if missing)
+
+python -m judge.train_confidence    # retrain the confidence tree (seed 1)
+python -m data.synthetic.generate --seed 7 --out data/synthetic/output/seed7    # held-out check
+python -m judge.rules data/synthetic/output/seed7
+python -m harness.evaluate data/synthetic/output/seed7
+
+python -m data.scraped.uk_organograms   # real data: UK government organograms, with answer key
+python -m data.scraped.asx_leadership   # real data: ASX/NZX leadership teams
+python -m judge.rules data/scraped/output/uk
+python -m harness.evaluate data/scraped/output/uk
 ```
 
-| File | What it does |
-|---|---|
-| `generate_data.py` | true org chart + messy copy |
-| `infer.py` | title parsing, manager search, abstentions, tree confidence |
-| `train_confidence.py` | trains the confidence tree on a separate dataset |
-| `evaluate.py` | scores predictions against the answer key |
-| `app.py` | Streamlit app: company table, company page |
-| `org_chart.py` | the expandable org chart (plain HTML/CSS/JavaScript) |
-| `models/` | the trained tree (JSON + readable rules) |
-| `docs/experiments.md` | every experiment and its numbers |
-| `docs/research_models.md` | notes on decision models and GLiNER |
-| `CLAUDE.md`, `.claude/` | project context and an `/eval` command for Claude Code |
+```
+data/
+  synthetic/   generate.py                     -> output/seed42, seed7, seed1 (git-ignored)
+  scraped/     uk_organograms.py, asx_leadership.py + asx_leadership.csv
+                                               -> output/uk, output/asx (git-ignored)
+judge/         rules.py (title parsing, manager search, abstentions, tree confidence)
+               train_confidence.py (trains the confidence tree on a separate dataset)
+harness/       evaluate.py (scores predictions against the answer key)
+models/        the trained tree (JSON + readable rules)
+app/           app.py (Streamlit: company table, company page), org_chart.py (expandable chart)
+docs/          experiments.md (every experiment and its numbers), research_models.md
+CLAUDE.md, .claude/   project context and an /eval command for Claude Code
+```
+
+Every dataset folder holds the same files: `employees.csv` (what a judge may see),
+`truth.csv` (answer key) and, after a judge runs, `predictions.csv`. So any judge runs on any
+dataset, and the harness scores it the same way.
 
 ## How I used AI
 - I used Claude Code, an AI coding assistant, inside VS Code for this project.

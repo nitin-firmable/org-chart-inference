@@ -1,7 +1,10 @@
 """
-infer.py  -  Steps 4 and 5
-Reads data/employees.csv (messy, no manager column) and writes data/predictions.csv:
+judge/rules.py  -  Steps 4 and 5 (was infer.py)
+Reads <data>/employees.csv (messy, no manager column) and writes <data>/predictions.csv:
 one row per person with a predicted manager + confidence, or a blank manager + reason.
+
+    python -m judge.rules                                  # synthetic seed 42
+    python -m judge.rules data/scraped/output/uk
 """
 import json
 import re
@@ -10,7 +13,8 @@ from pathlib import Path
 
 import pandas as pd
 
-MODEL_PATH = Path(__file__).parent / "models" / "confidence_tree.json"
+MODEL_PATH = Path(__file__).parent.parent / "models" / "confidence_tree.json"
+DEFAULT_DATA = "data/synthetic/output/seed42"
 
 # ---------------------------------------------------------------- Step 4: clean titles
 # Applied in order, on lower-case text, as whole words
@@ -292,7 +296,7 @@ def tree_predict(model, X):
     return out
 
 
-def main(data_dir="data", use_model=True):
+def main(data_dir=DEFAULT_DATA, use_model=True):
     data_dir = Path(data_dir)
     df = pd.read_csv(data_dir / "employees.csv")
     # Duplicates: same person listed twice -> keep one
@@ -332,6 +336,6 @@ def main(data_dir="data", use_model=True):
 
 
 if __name__ == "__main__":
-    # python infer.py [data_dir] [--rules]   (--rules ignores the trained tree)
+    # python -m judge.rules [data_dir] [--rules]   (--rules ignores the trained tree)
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    main(args[0] if args else "data", use_model="--rules" not in sys.argv)
+    main(args[0] if args else DEFAULT_DATA, use_model="--rules" not in sys.argv)

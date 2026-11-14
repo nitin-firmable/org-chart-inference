@@ -7,9 +7,9 @@
       "PowerShell(git status*)",
       "PowerShell(git diff*)",
       "PowerShell(git log*)",
-      "PowerShell(.\\.venv\\Scripts\\python.exe generate_data.py)",
-      "PowerShell(.\\.venv\\Scripts\\python.exe infer.py)",
-      "PowerShell(.\\.venv\\Scripts\\python.exe evaluate.py)"
+      "PowerShell(.\\.venv\\Scripts\\python.exe -m data.synthetic.generate)",
+      "PowerShell(.\\.venv\\Scripts\\python.exe -m judge.rules)",
+      "PowerShell(.\\.venv\\Scripts\\python.exe -m harness.evaluate)"
     ],
     "deny": [
       "PowerShell(git push --force*)",

@@ -2,15 +2,20 @@
 app.py  -  Step 7
 Streamlit app. Front page: overall results + a searchable, sortable table of all companies.
 Click a row (or use the sidebar) to open that company's inferred org chart.
-Run locally with:  streamlit run app.py
+Run locally from the repo root with:  streamlit run app/app.py
 """
+import sys
 import threading
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-import org_chart
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))          # Streamlit only puts app/ on the path; we need the root
+from app import org_chart  # noqa: E402
+
+DATA = ROOT / "data/synthetic/output/seed42"
 
 st.set_page_config(page_title="Org Chart Inference", layout="wide")
 
@@ -22,9 +27,9 @@ def build_lock():
 
 def is_stale():
     # Missing files, or files made by an older version of the code
-    return (not Path("data/predictions.csv").exists() or not Path("data/truth.csv").exists()
-            or "scenario" not in pd.read_csv("data/truth.csv", nrows=1).columns
-            or "rule_confidence" not in pd.read_csv("data/predictions.csv", nrows=1).columns)
+    return (not (DATA / "predictions.csv").exists() or not (DATA / "truth.csv").exists()
+            or "scenario" not in pd.read_csv(DATA / "truth.csv", nrows=1).columns
+            or "rule_confidence" not in pd.read_csv(DATA / "predictions.csv", nrows=1).columns)
 
 
 @st.cache_data
@@ -34,11 +39,12 @@ def load():
     # then finds fresh files and skips the rebuild.
     with build_lock():
         if is_stale():
-            import generate_data, infer
-            generate_data.main()
-            infer.main()
-    pred = pd.read_csv("data/predictions.csv")
-    truth = pd.read_csv("data/truth.csv")
+            from data.synthetic import generate as generate_data
+            from judge import rules as infer
+            generate_data.main(out=DATA)
+            infer.main(DATA)
+    pred = pd.read_csv(DATA / "predictions.csv")
+    truth = pd.read_csv(DATA / "truth.csv")
     # Scoring frame, built exactly like evaluate.py so the numbers match the README:
     # one row per real person who has a manager to find, predictions joined on.
     scored = truth[truth.in_dataset.astype(bool) & truth.true_manager_id.notna()][

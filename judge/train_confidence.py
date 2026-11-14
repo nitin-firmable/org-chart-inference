@@ -1,8 +1,8 @@
 """
-train_confidence.py  -  learn the confidence of each reporting line (replaces hand-set penalties)
+judge/train_confidence.py  -  learn the confidence of each reporting line (replaces hand-set penalties)
 
-1. Generate a SEPARATE training world (seed 1) in data/train_seed1/. The app's data (seed 42)
-   and the held-out test data (seed 7) are never used for training, so no leakage.
+1. Generate a SEPARATE training world (seed 1) in data/synthetic/output/seed1/. The app's
+   data (seed 42) and the held-out test data (seed 7) are never used for training, so no leakage.
 2. Run the rules on it; every proposed edge becomes one row: features -> correct (1) / wrong (0).
 3. Split by COMPANY (80% train / 20% validation): people in one company share a structure,
    so a random row split would leak.
@@ -13,7 +13,7 @@ Decision threshold is not tuned: it comes from a stated cost. If a wrong edge is
 worse than a missing edge, drawing an edge with P(correct) = p is worth it when
 p - COST * (1 - p) > 0, i.e. p > COST / (COST + 1).
 
-Usage: python train_confidence.py
+Usage: python -m judge.train_confidence
 """
 import json
 from pathlib import Path
@@ -22,10 +22,10 @@ import numpy as np
 import pandas as pd
 from sklearn.tree import DecisionTreeClassifier
 
-import generate_data
-import infer
+from data.synthetic import generate as generate_data
+from judge import rules as infer
 
-TRAIN_DIR = Path("data/train_seed1")
+TRAIN_DIR = Path("data/synthetic/output/seed1")
 MODEL_DIR = Path("models")
 COST_OF_WRONG_EDGE = 4          # "a wrong edge is worse than no edge": 4x worse
 MAX_DEPTH = 4                   # small enough to read; see the depth table printed below

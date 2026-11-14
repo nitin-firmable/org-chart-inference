@@ -101,3 +101,31 @@ What the tree learned (worth discussing):
 Still weak: shared-manager teams (63% precision, coverage cut to 16%) and manager-missing
 cases (every edge drawn there is wrong by definition: 13% coverage). The features can't
 fully tell these apart from normal teams.
+
+## Real data, first run (14 Nov 2026, branch real-data)
+
+Two real datasets, same columns as the synthetic data:
+- **UK government organograms** (`data/scraped/uk_organograms.py`): 13 organisations, 3,184
+  senior civil servants, with the real "reports to" line as the answer key. 277 vacant posts
+  are kept in truth.csv only (the "manager missing" case, but real).
+- **ASX/NZX leadership teams** (`data/scraped/asx_leadership.py`): 11 companies, 125
+  executives copied from each company's own leadership page. Only 2 people have a stated manager.
+
+| Dataset | Precision | Coverage | Lines drawn |
+|---|---|---|---|
+| UK organograms | 0.0% | 0.4% | 12 (all wrong) |
+| ASX leadership | n/a (2 scorable) | 5.6% | 7 (all look right by eye) |
+
+Why: the rules only know the generator's title style. 2,879 of 3,184 UK titles and 92 of 125
+ASX titles get "title could not be parsed": no function keyword in the role part ("Deputy
+Director - Financial Services"), department names that are not exact matches, and senior
+titles the level reader doesn't know ("Permanent Secretary", "Group Executive", "Executive
+General Manager", "Managing Director & CEO" read as a Director, so 8 of 11 ASX companies have
+no CEO). Next: a context-aware judge, measured on the UK answer key.
+
+## Repo restructure (14 Nov 2026, branch real-data)
+
+Moved into folders by role: `data/synthetic/`, `data/scraped/`, `judge/`, `harness/`, `app/`.
+No logic changed. Checked by rebuilding from scratch: seed 42 and seed 7 predictions.csv are
+byte-identical to before (same checksums), the retrained confidence tree is identical, and the
+app shows the same headline numbers (96.3% / 58.7%).

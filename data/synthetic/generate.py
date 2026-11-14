@@ -1,15 +1,15 @@
 """
-generate_data.py  -  Steps 2 and 3
+data/synthetic/generate.py  -  Steps 2 and 3
 Builds a synthetic dataset: the TRUE org chart first, then a messy flat copy.
 
-Outputs (in data/):
+Outputs (in data/synthetic/output/seed42/, or --out):
   employees.csv -> what the inference code is allowed to see (no manager column, messy)
   truth.csv     -> the hidden answer key (true manager, clean title, level, function,
                    plus the scenario each person belongs to)
 
 Two versions:
-  python generate_data.py        -> v2 (default): realistic, harder data
-  python generate_data.py --v1   -> v1: the original dataset, byte-for-byte reproducible
+  python -m data.synthetic.generate        -> v2 (default): realistic, harder data
+  python -m data.synthetic.generate --v1   -> v1: the original dataset, byte-for-byte reproducible
 
 v2 adds, on top of v1:
   * more first/last names and middle initials
@@ -31,7 +31,7 @@ import pandas as pd
 
 SEED = 42
 N_COMPANIES = 500
-OUT = Path("data")
+OUT = Path("data/synthetic/output/seed42")
 V2 = True                                  # set by main()
 rng = random.Random(SEED)                  # private generator, set by main()
 
