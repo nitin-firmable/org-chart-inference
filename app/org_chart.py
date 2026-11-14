@@ -85,6 +85,7 @@ TEMPLATE = r"""
          color:var(--ink); background:#fff; }
   .section { position:relative; padding:8px 4px 18px; }
   .section h4 { margin:6px 0 10px; font-size:15px; }
+  #np-toggle { margin:0 0 0 8px; vertical-align:middle; font-weight:400; }
   .section .hint { font-weight:400; color:var(--muted); font-size:13px; }
   .row { position:relative; display:flex; flex-wrap:wrap; justify-content:center; gap:12px;
          padding:6px 0; z-index:1; }
@@ -130,12 +131,16 @@ TEMPLATE = r"""
 <div class="section" id="main"><h4>Org chart <span class="hint">· click a number to see that
   person's team</span></h4><div class="tree"></div></div>
 <hr>
-<div class="section" id="np"><h4>Not placed <span class="hint" id="np-hint"></span></h4>
+<div class="section" id="np"><h4>Not placed <span class="hint" id="np-hint"></span>
+  <button class="pill" id="np-toggle"></button></h4>
   <div class="tree"></div></div>
 <script>
 const D = __DATA__;
 const N = D.nodes;
 const state = { main: [], np: [] };            // expanded path per section
+// Open one level by default: a single head of the organisation shows their direct reports
+if (D.roots.length === 1 && N[D.roots[0]].k.length) state.main = [D.roots[0]];
+let npOpen = false;                            // "Not placed" starts collapsed
 const fmt = n => n.toLocaleString("en-US");
 
 if (D.truth) document.getElementById("legend").innerHTML =
@@ -249,7 +254,18 @@ function toggle(sec, rowIdx, id) {
   }
 }
 
-render("main"); render("np");
-window.addEventListener("resize", () => { drawLinks("main"); drawLinks("np"); });
+function renderNotPlaced() {
+  const btn = document.getElementById("np-toggle");
+  btn.style.display = D.unplaced.length ? "" : "none";
+  btn.innerHTML = npOpen ? 'Hide <span class="chev up"></span>' : 'Show <span class="chev"></span>';
+  const tree = document.querySelector("#np .tree");
+  tree.style.display = npOpen || !D.unplaced.length ? "" : "none";
+  if (npOpen || !D.unplaced.length) render("np");
+  else document.querySelectorAll("#np svg.links").forEach(s => s.remove());
+}
+document.getElementById("np-toggle").onclick = () => { npOpen = !npOpen; renderNotPlaced(); };
+
+render("main"); renderNotPlaced();
+window.addEventListener("resize", () => { drawLinks("main"); if (npOpen) drawLinks("np"); });
 </script>
 """
