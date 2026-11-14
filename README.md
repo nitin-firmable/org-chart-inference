@@ -25,6 +25,16 @@ messy data:
 
 ## The app
 
+- **What if… add or remove people:** "＋ Add people" (one by one, or paste a list of
+  `Name | Designation`; to an existing company or a new organisation) and "− Remove people"
+  (optionally where they're moving). Only the changed people are judged live: new people,
+  and the direct reports of anyone who left. Leavers stay on the chart blurred ("Left →
+  Google"), their team shows "MOVED · was under … · interim". Edits live only in your
+  session (session tables over the shared DuckDB file), with Undo, Reset and a CSV download.
+  Live judge: Gemini (free key in `.streamlit/secrets.toml` or Streamlit Cloud Secrets as
+  `GEMINI_API_KEY`), Claude via the `claude` CLI when the app runs locally, else rules.
+- **Docs:** the sidebar button opens the animated flow diagram (`app/flow.svg`).
+
 - **Dataset and judge pickers:** synthetic (500 companies, rules judge), UK government
   organograms (real, with answer key) and ASX/NZX leadership teams (real, with source links),
   each with every judge that has results: Claude, rules, Laya. A "Judges compared" table shows

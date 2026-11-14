@@ -14,12 +14,16 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))          # Streamlit only puts app/ on the path; we need the root
 from app import org_chart  # noqa: E402
+from app.what_if import NEW_ORG, WhatIf  # noqa: E402
+from judge import live  # noqa: E402
 
 DB = ROOT / "app/org_chart.duckdb"
+FLOW = ROOT / "app/flow.svg"
 DATASETS = {"synthetic": "Synthetic (500 companies)", "uk": "UK government (real)",
             "asx": "ASX/NZX leadership (real)"}
 ABOUT = {
@@ -116,7 +120,10 @@ def measure(people, scored, threshold):
     if HAS_TRUTH[data]:
         return score(apply_threshold(scored, threshold))
     p = apply_threshold(people, threshold)
-    return p[~p.is_top.astype(bool)].given.mean(), None
+    keep = ~p.is_top.astype(bool)
+    if "gone" in p:
+        keep &= p.gone.isna()                      # people who left don't count
+    return p[keep].given.mean(), None
 
 
 ss = st.session_state
@@ -147,11 +154,23 @@ st.sidebar.selectbox("Judge", judges, key="judge_select", format_func=JUDGES.get
 judge = ss.judge_select
 
 df, scored = load(data, judge)
+# This visitor's "what if" edits: session tables over the shared file, per dataset
+if "what_if" not in ss:
+    ss.what_if = WhatIf(DB)
+wi = ss.what_if
+editing = wi.has_edits(data)
+if editing:
+    df = wi.people(data, judge)
+    scored = scored[~scored.employee_id.isin(wi.changed(data))]
+else:
+    df = df.assign(is_new=False, moved_from=None, gone=None)
 # Fixed order: the table's selected row number is looked up in this list
 companies = (df[["company_id", "company_name", "industry"]].drop_duplicates("company_id")
              .sort_values("company_name").reset_index(drop=True))
 company_label = dict(zip(companies.company_id,
                          companies.company_name + " (" + companies.company_id + ")"))
+company_info = {r.company_id: dict(company_id=r.company_id, company_name=r.company_name,
+                                   industry=r.industry) for r in companies.itertuples()}
 
 # ---------------------------------------------------------------- which company is open?
 # One source of truth: ss.company_select (also the sidebar dropdown's value).
@@ -159,6 +178,8 @@ company_label = dict(zip(companies.company_id,
 if "company_select" not in ss:
     from_url = st.query_params.get("company", "")
     ss.company_select = from_url if from_url in company_label else ""
+if "open_company" in ss:
+    ss.company_select = ss.pop("open_company")
 if ss.company_select not in company_label:
     ss.company_select = ""
 table_key = f"company_table_{ss.table_version}"
@@ -200,10 +221,183 @@ st.caption(f"{DATASETS[data]} · judge: {JUDGES[judge]}. {ABOUT[data]} "
            "No line is drawn when confidence is below the threshold — "
            "a wrong line is worse than no line.")
 
+
+# ---------------------------------------------------------------- what if: add / remove people
+def secrets():
+    try:
+        return dict(st.secrets)
+    except StreamlitSecretNotFoundError:
+        return {}
+
+
+def live_judge_choice(key):
+    """Best available live judge by default; changeable under Advanced."""
+    found = live.available(secrets())
+    with st.expander("Advanced: which judge places these people"):
+        return st.radio("Live judge", found, format_func=live.LABELS.get, key=key,
+                        horizontal=True)
+
+
+def company_option(c):
+    return "＋ New organisation…" if c == NEW_ORG else company_label.get(c, c)
+
+
+@st.dialog("Add people", width="large")
+def add_dialog(default_cid):
+    ids = companies.company_id.tolist()
+    pick = st.selectbox("Company", ids + [NEW_ORG], format_func=company_option,
+                        index=ids.index(default_cid) if default_cid in ids else len(ids))
+    new_org = st.text_input("New organisation name", placeholder="e.g. Acme Pty Ltd") \
+        if pick == NEW_ORG else ""
+    one, many = st.tabs(["One by one", "Paste a list"])
+    with one:
+        table = st.data_editor(
+            pd.DataFrame({"Name (optional)": [""] * 3, "Designation": [""] * 3}),
+            num_rows="dynamic", hide_index=True, width="stretch", key="add_table")
+    with many:
+        pasted = st.text_area("One person per line: Name | Designation, or just the designation",
+                              placeholder="Priya Shah | Head of Data Engineering\n"
+                                          "Senior Data Analyst", height=150)
+    backend = live_judge_choice("add_judge")
+    if not st.button("Add and place them", type="primary"):
+        return
+    rows = [(str(n or "").strip(), str(d or "").strip())
+            for n, d in table.itertuples(index=False) if str(d or "").strip()]
+    for line in pasted.splitlines():
+        parts = [x.strip() for x in line.replace("\t", "|").split("|")]
+        if parts[-1]:
+            rows.append((parts[0] if len(parts) > 1 else "", parts[-1]))
+    if not rows:
+        st.error("Add at least one designation.")
+        return
+    if pick == NEW_ORG and not new_org.strip():
+        st.error("Give the new organisation a name.")
+        return
+    company = company_info.get(pick) or dict(company_id=f"NEW{wi.last_no + 1:03d}",
+                                             company_name=new_org.strip(),
+                                             industry="Added (what-if)")
+    try:
+        with st.spinner(f"{live.LABELS[backend]} is placing {len(rows)} people…"):
+            wi.add(data, judge, company, rows, backend, secrets(), df)
+    except live.LiveJudgeError as exc:
+        st.error(str(exc))
+        return
+    ss.pop("seen_change", None)
+    if pick == NEW_ORG:
+        ss.open_company = company["company_id"]      # applied before the sidebar is drawn
+    st.rerun()
+
+
+@st.dialog("Remove people", width="large")
+def remove_dialog(cid):
+    co = df[(df.company_id == cid) & df.gone.isna()]
+    who = dict(zip(co.employee_id, co.full_name + " — " + co.title.fillna("(no title)")))
+    picks = st.multiselect("Who is leaving?", list(who), format_func=who.get,
+                           placeholder="Pick one or more people")
+    others = [c for c in companies.company_id if c != cid]
+    leavers = {}
+    for pid in picks:
+        with st.container(border=True):
+            st.markdown(f"**{who[pid]}**")
+            c1, c2, c3 = st.columns(3)
+            dest = c1.selectbox("Moving to (optional)", [""] + others + [NEW_ORG], key=f"to_{pid}",
+                                format_func=lambda c: "Unknown / not in the data" if c == ""
+                                else company_option(c))
+            org = c2.text_input("New organisation name", key=f"org_{pid}",
+                                disabled=dest != NEW_ORG, placeholder="e.g. Google")
+            role = c3.text_input("New designation (optional)", key=f"role_{pid}",
+                                 placeholder="e.g. Staff Engineer")
+            leavers[pid] = dict(dest_id=dest, new_org=org.strip(), designation=role.strip())
+    backend = live_judge_choice("remove_judge")
+    if not st.button("Remove and re-place their team", type="primary", disabled=not picks):
+        return
+    if any(d["dest_id"] == NEW_ORG and not d["new_org"] for d in leavers.values()):
+        st.error("Give each new organisation a name.")
+        return
+    try:
+        with st.spinner(f"{live.LABELS[backend]} is re-placing their team…"):
+            wi.remove(data, judge, cid, leavers, backend, secrets(), df, company_info)
+    except live.LiveJudgeError as exc:
+        st.error(str(exc))
+        return
+    ss.pop("seen_change", None)
+    st.rerun()
+
+
+def what_if_bar():
+    if not editing:
+        return
+    c = wi.counts(data)
+    with st.container(border=True):
+        b1, b2, b3, b4 = st.columns([6, 1.3, 1, 1.7], vertical_alignment="center")
+        b1.markdown(f"**What-if mode** · {c['added']} added · {c['removed']} removed · "
+                    f"{c['overrides']} re-placed  \nOnly in your session; the shared data is "
+                    "unchanged. Accuracy leaves out the people you changed.")
+        b2.button("Undo last", on_click=wi.undo, args=(data,), width="stretch")
+        b3.button("Reset", on_click=wi.reset, args=(data,), width="stretch")
+        b4.download_button("Download CSV", df.to_csv(index=False).encode(),
+                           f"what_if_{data}.csv", "text/csv", width="stretch")
+
+
+def last_change_summary():
+    no, change = wi.last_change(data)
+    if no is None or ss.get("seen_change") == (data, no):
+        return
+    drawn = apply_threshold(df, threshold).set_index("employee_id")
+    name_of = dict(zip(df.employee_id, df.full_name))
+    verbs = {"added": "added", "joined": "joined", "removed": "left", "moved": "re-placed"}
+    rows = []
+    for r in change.drop_duplicates(["employee_id", "action"]).itertuples():
+        if r.employee_id not in drawn.index:
+            continue
+        p = drawn.loc[r.employee_id]
+        if r.action == "removed":
+            result, boss, conf = f"left → {p.gone}", "", None
+        else:
+            boss = name_of.get(p.pred_manager_id, "")
+            conf = p.confidence if isinstance(p.pred_manager_id, str) else None
+            result = ("line drawn" if p.given else "heads the organisation" if p.is_top
+                      else f"not drawn: below {threshold:.2f}" if boss
+                      else str(p.reason).split(": ", 1)[-1])
+        rows.append({"Person": p.full_name, "Designation": p.title, "Company": p.company_name,
+                     "Change": verbs[r.action], "Reports to": boss, "Confidence": conf,
+                     "Result": result})
+    table = pd.DataFrame(rows)
+    if table.Company.nunique() == 1:
+        table = table.drop(columns="Company")
+    with st.container(border=True):
+        h1, h2 = st.columns([8, 1], vertical_alignment="center")
+        backend = change.judge.iloc[0]
+        h1.markdown(f"**Last change** · judged by {live.LABELS[backend]} · lines are drawn at "
+                    f"confidence ≥ {threshold:.2f}" +
+                    (" · Gemini's confidence isn't calibrated yet, so lower the threshold to "
+                     "see its proposals" if backend == "gemini" else ""))
+        h2.button("Dismiss", on_click=lambda: ss.update(seen_change=(data, no)), width="stretch")
+        st.dataframe(table, hide_index=True, width="stretch",
+                     column_config={"Confidence": st.column_config.NumberColumn(format="%.2f")})
+
+
+@st.dialog("Docs", width="large")
+def docs_dialog():
+    svg = FLOW.read_text().replace('width="1200" height="880"', 'width="100%"', 1)
+    st.iframe(f"<div>{svg}</div>", height=880)
+
+
+def sidebar_docs():
+    st.sidebar.divider()
+    if st.sidebar.button("Docs: how it works", icon=":material/account_tree:", width="stretch"):
+        docs_dialog()
+
+
+what_if_bar()
+last_change_summary()
+
 # ================================================================ front page: all companies
 if not cid:
     st.write("Pick a company in the table to see its org chart. Search with the magnifying "
              "glass (top right of the table), sort by clicking a column header.")
+    if st.button("＋ Add people", help="Add people to a company, or to a new organisation"):
+        add_dialog(None)
     s = apply_threshold(scored, threshold)
     coverage, precision = measure(df, scored, threshold)
     c1, c2, c3, c4 = st.columns(4)
@@ -257,11 +451,23 @@ if not cid:
             "coverage": st.column_config.NumberColumn("Coverage", format="%.0f%%"),
             "precision": st.column_config.NumberColumn("Precision", format="%.1f%%"),
         })
+    sidebar_docs()
     st.stop()
 
 # ================================================================ company page
-st.button("← Back to all companies", on_click=back_to_all)
+b1, b2, b3, _ = st.columns([1.6, 1.3, 1.5, 4])
+b1.button("← Back to all companies", on_click=back_to_all)
+if b2.button("＋ Add people"):
+    add_dialog(cid)
+if b3.button("− Remove people"):
+    remove_dialog(cid)
 co = apply_threshold(df[df.company_id == cid], threshold)
+# Re-placed after someone left: "was under X", and "interim" if moved up to X's own manager
+boss_before = dict(zip(co.employee_id, co.pred_manager_id))
+name_of = dict(zip(co.employee_id, co.full_name))
+co["moved"] = [(f"was under {name_of.get(m, '?')}" +
+                (" · interim" if p == boss_before.get(m) else "")) if isinstance(m, str) else ""
+               for m, p in zip(co.moved_from, co.pred_manager_id)]
 domains = ["All"] + sorted(co.domain.dropna().astype(str).unique().tolist())
 domain = st.sidebar.selectbox("Domain", domains,
                               help="Function, unit or division, as the judge read it")
@@ -307,5 +513,6 @@ else:
     st.write(f"No manager assigned. Reason: {row.reason or 'below threshold'}")
 
 st.subheader("People left without a manager")
-st.dataframe(co[co.manager_id.isna() & ~co.is_top.astype(bool)][
+st.dataframe(co[co.manager_id.isna() & ~co.is_top.astype(bool) & co.gone.isna()][
     ["full_name", "title", "department", "reason"]], width="stretch", hide_index=True)
+sidebar_docs()

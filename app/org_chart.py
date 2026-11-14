@@ -26,9 +26,13 @@ def build_payload(view, show_truth):
             "top": bool(r.is_top) and not mgr,
             "new": bool(getattr(r, "is_new", False)),
             "gone": r.gone if isinstance(getattr(r, "gone", None), str) else "",
+            "moved": r.moved if isinstance(getattr(r, "moved", None), str) else "",
             "m": mgr,
             "c": round(float(r.confidence), 2) if mgr else None,
-            "ok": bool(r.manager_id == r.true_manager_id) if (show_truth and mgr) else None,
+            # moved or new people have no answer key any more: no right/wrong colour
+            "ok": bool(r.manager_id == r.true_manager_id)
+            if (show_truth and mgr and not getattr(r, "is_new", False)
+                and not isinstance(getattr(r, "moved_from", None), str)) else None,
             "why": r.reason if isinstance(r.reason, str) else "",
             "k": [], "tot": 0,
         }
@@ -99,6 +103,7 @@ TEMPLATE = r"""
            padding:1px 6px; margin:2px 0 1px; }
   .badge.new { background:#e6efff; color:var(--accent); }
   .badge.gone { background:#fdecec; color:#a33a3a; }
+  .badge.moved { background:#fff3dc; color:#94610b; }
   .avatar { flex:0 0 34px; height:34px; border-radius:50%; color:#fff; font-size:13px;
             font-weight:600; display:flex; align-items:center; justify-content:center; }
   .body { min-width:0; flex:1; }
@@ -160,7 +165,8 @@ function card(id, sec, rowIdx) {
   el.dataset.id = id;
   let meta;
   const badge = n.gone ? '<div class="badge gone">Left → ' + esc(n.gone) + '</div>'
-              : n.new ? '<div class="badge new">NEW</div>' : '';
+              : n.new ? '<div class="badge new">NEW</div>'
+              : n.moved ? '<div class="badge moved">MOVED · ' + esc(n.moved) + '</div>' : '';
   if (n.m) meta = "line confidence " + n.c.toFixed(2);
   else if (n.top) meta = "heads the organisation";
   else meta = n.why ? "not placed: " + esc(n.why) : "not placed";
