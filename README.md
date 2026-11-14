@@ -1,6 +1,6 @@
 # Org Chart Inference
 
-**Live app:** https://divya-org-chart.streamlit.app
+**Live app:** https://nitin-org-chart.streamlit.app
 *(Free hosting sleeps when idle. If you see "Yes, get this app back up!", click it and allow
 2-3 minutes while the dataset is rebuilt.)*
 
@@ -29,7 +29,7 @@ messy data:
   industry, employees, coverage, precision). You can search it, sort it by any column, and
   click a row to open that company. The sidebar dropdown stays in sync.
 - **Shareable links:** each company has its own address, e.g.
-  [?company=C490](https://divya-org-chart.streamlit.app/?company=C490).
+  [?company=C490](https://nitin-org-chart.streamlit.app/?company=C490).
 - **Expandable org chart:** starts with the CEO. Each card shows name, title and the
   confidence of the line to their manager, plus a count of everyone under that person.
   Click the count to open their direct reports, and "Collapse" to close them.
