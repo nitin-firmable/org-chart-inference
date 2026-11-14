@@ -20,6 +20,13 @@ Take-home task for Firmable (B2B sales intelligence). Deadline: Sat 7 Nov 2026.
 - `judge/rules.py` (was infer.py) -> `<data>/predictions.csv` (manager_id, confidence, reason,
   f_* features). `judge/train_confidence.py` trains the edge-confidence tree on seed 1,
   saves `models/confidence_tree.json` (used by judge/rules.py) + `.txt` (readable rules)
+- Model judges, same decision format (Choice / Score / Noul, `judge/decisions.py`), each writing
+  `<data>/runs/<judge>/raw.csv`: `judge/claude_judge.py` (Claude Code CLI, headless, staged:
+  level -> domain -> manager), `judge/laya_judge.py` and `judge/laya_staged.py` (free local
+  Laya; doesn't know seniority, kept as a baseline). Laya needs requirements-research.txt.
+- `harness/run.py` -> any judge on any dataset, one table (precision, chain, coverage, wrong,
+  Brier). `harness/calibrate.py` fits each model judge's confidence on the UK answer key
+  (leave one organisation out); maps saved in `models/calibration/`.
 - `harness/evaluate.py` -> precision / coverage / wrong edges, Brier, sweep, calibration, scenarios
 - `app/app.py` -> Streamlit app (builds seed 42 itself if missing or stale); `app/org_chart.py`
 

@@ -2,3 +2,4 @@
 # Install into the venv with:  pip install -r requirements-research.txt
 -r requirements.txt
 gliner
+laya==0.4.31              # free decision model used by judge/laya_judge.py (pulls torch)

@@ -129,3 +129,38 @@ Moved into folders by role: `data/synthetic/`, `data/scraped/`, `judge/`, `harne
 No logic changed. Checked by rebuilding from scratch: seed 42 and seed 7 predictions.csv are
 byte-identical to before (same checksums), the retrained confidence tree is identical, and the
 app shows the same headline numbers (96.3% / 58.7%).
+
+## Decision-model judges on real data (14 Nov 2026, branch real-data)
+
+Four judges, scored by `python -m harness.run --judge rules laya laya_staged claude --data uk asx`.
+Model judges' confidences are calibrated on the UK answer key, each organisation by a map
+fitted on the other twelve; the line is drawn at calibrated confidence >= 0.8.
+
+| Data | Judge | Lines drawn | Precision | Right chain | Coverage | Wrong (skip-level) |
+|---|---|---|---|---|---|---|
+| UK (3,171 people with a known manager) | rules | 12 | 0.0% | 0.0% | 0.4% | 12 (0) |
+| UK | Laya, everyone a candidate | 0 | - | - | 0.0% | 0 |
+| UK | Laya, staged (level -> domain -> manager) | 0 | - | - | 0.0% | 0 |
+| UK | **Claude (Sonnet), staged** | **935** | **88.3%** | **94.8%** | **29.5%** | 109 (60) |
+| ASX (125 executives) | rules | 7 | - | - | - | - |
+| ASX | **Claude (Sonnet), staged** | **102** | 1 of 1 known | - | - | 0 |
+
+Raw top pick (before any threshold) is the true manager: Laya 0.5% (random is 0.4%), staged
+Laya 2.3%, Claude 57.5% (68.9% in its top two). By organisation Claude ranges from 47% (MoJ)
+to 81% (Land Registry).
+
+What we learned:
+- **Laya doesn't know seniority.** Its 1-10 level score is flat (CEO 3.4, Software Engineer
+  3.2, Intern 4.0) and its manager pick matches wording, not rank (a Deputy Director picked
+  as a Director General's boss). The staged design still helped it (0.5% -> 2.3%) and its
+  filters keep the true manager 98.7% of the time, so it needs a model that can read level.
+- **Claude reads seniority in context.** Its average level per real grade is in order
+  (Permanent Secretary 1.0, Director General 2.7, Director 3.6, Deputy Director 4.7), and
+  its self-reported confidence is honest, even modest (0.7-0.8 answers were right 94%).
+- Most remaining errors are look-alikes: several Directors with near-identical titles. 60 of
+  the 109 wrong lines name a boss further up the true chain.
+- ASX: Claude found the head in all 11 companies and drew 102 lines. It abstained on CBA's
+  Group CIO, where it guessed the CTO (the bank's newsroom says the CEO): an abstention
+  where it was wrong, which is the behaviour we want.
+
+Cost: 56 headless `claude -p` calls (Sonnet, subscription), ~85 output tokens per person.
