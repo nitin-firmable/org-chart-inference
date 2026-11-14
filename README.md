@@ -37,8 +37,7 @@ messy data:
 
 - **Dataset and judge pickers:** synthetic (500 companies, rules judge), UK government
   organograms (real, with answer key) and ASX/NZX leadership teams (real, with source links),
-  each with every judge that has results: Claude, rules, Laya. A "Judges compared" table shows
-  them side by side. Links keep the choice, e.g. `?data=uk&judge=claude&company=UK10`.
+  each with every judge that has results: Claude, rules, Laya. Links keep the choice, e.g. `?data=uk&judge=claude&company=UK10`.
 
 - **Front page:** overall precision and coverage, plus a table of all 500 companies (name,
   industry, employees, coverage, precision). You can search it, sort it by any column, and

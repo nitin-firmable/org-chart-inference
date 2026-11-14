@@ -1,7 +1,7 @@
 """
 app.py  -  Step 7
 Streamlit app. Pick a dataset (synthetic, or real: UK government, ASX/NZX leadership) and a
-judge (rules, Claude, Laya). Front page: overall results, judges compared, and a searchable,
+judge (rules, Claude, Laya). Front page: overall results and a searchable,
 sortable table of companies. Click a row (or use the sidebar) to open that company's org chart.
 Run locally from the repo root with:  streamlit run app/app.py
 
@@ -409,22 +409,6 @@ if not cid:
     if show_truth:
         c4.metric("Precision (all companies)", f"{precision:.1%}",
                   help="Of the reporting lines drawn, the share that match the answer key")
-
-    if len(judges) > 1:
-        st.subheader("Judges compared")
-        rows = []
-        for j in judges:
-            people, sc = load(data, j)
-            drawn = apply_threshold(people, threshold).given.sum()
-            cov, prec = measure(people, sc, threshold)
-            rows.append({"Judge": JUDGES[j], "Lines drawn": int(drawn),
-                         "Coverage": 100 * cov, "Precision": 100 * prec if show_truth else None})
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="content",
-                     column_order=["Judge", "Lines drawn", "Coverage"] +
-                     (["Precision"] if show_truth else []),
-                     column_config={
-                         "Coverage": st.column_config.NumberColumn(format="%.1f%%"),
-                         "Precision": st.column_config.NumberColumn(format="%.1f%%")})
 
     st.subheader("Companies")
     everyone = apply_threshold(df, threshold)
