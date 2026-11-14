@@ -168,9 +168,11 @@ if editing:
     scored = scored[~scored.employee_id.isin(wi.changed(data))]
 else:
     df = df.assign(is_new=False, moved_from=None, gone=None)
-# Fixed order: the table's selected row number is looked up in this list
+# Fixed order (largest first, then by name): the table's clicked row is looked up here
 companies = (df[["company_id", "company_name", "industry"]].drop_duplicates("company_id")
-             .sort_values("company_name").reset_index(drop=True))
+             .merge(df.groupby("company_id").size().rename("size"), on="company_id")
+             .sort_values(["size", "company_name"], ascending=[False, True])
+             .reset_index(drop=True))
 company_label = dict(zip(companies.company_id,
                          companies.company_name + " (" + companies.company_id + ")"))
 company_info = {r.company_id: dict(company_id=r.company_id, company_name=r.company_name,
@@ -200,7 +202,8 @@ def back_to_all():
 
 
 # ---------------------------------------------------------------- sidebar
-st.sidebar.selectbox("Company", [""] + companies.company_id.tolist(), key="company_select",
+st.sidebar.selectbox("Company", [""] + sorted(companies.company_id, key=company_label.get),
+                     key="company_select",
                      format_func=lambda c: company_label.get(c, "All companies"))
 threshold = st.sidebar.slider(
     "Confidence threshold", 0.5, 1.0, DEFAULT_THRESHOLD, 0.05,
@@ -432,7 +435,8 @@ if not cid:
         (["precision"] if show_truth else [])
     st.dataframe(
         table, key=table_key, on_select="rerun", selection_mode="single-cell",
-        hide_index=True, width="stretch", height=560, column_order=columns,
+        hide_index=True, width="stretch", column_order=columns,
+        height=min(560, 35 * (len(table) + 1) + 3),     # fit the rows: no empty lines
         column_config={
             "company_name": st.column_config.TextColumn(
                 "Company", help="Click a company's name to open its org chart"),
